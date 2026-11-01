@@ -10,6 +10,7 @@ let board = null
 let version = 0 // 操作のたびに増やす。古いポーリング結果で上書きしないため
 let pending = 0
 let pendingCheckId = null // 名前を選ぶ前にタップした家事
+let popId = null // 直前にチェックした家事(印を弾ませる)
 
 // ---------- 小さな道具 ----------
 
@@ -199,7 +200,7 @@ function taskItem(t) {
     'button',
     {
       type: 'button',
-      class: `card${done ? ' done' : ''}`,
+      class: `card${done ? ' done' : ''}${done && t.id === popId ? ' pop' : ''}`,
       'aria-pressed': done ? 'true' : 'false',
       onclick: () => (done ? uncheck(t) : check(t)),
     },
@@ -233,6 +234,8 @@ function check(t) {
 
 function doCheck(id, member) {
   const now = Date.now()
+  popId = id
+  setTimeout(() => popId === id && (popId = null), 600)
   mutate(
     (b) => {
       const x = b.tasks.find((y) => y.id === id)

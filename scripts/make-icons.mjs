@@ -1,10 +1,10 @@
-// PWA 用のアイコン(PNG)を依存なしで作る。緑の正方形に白いチェック
+// PWA 用のアイコン(PNG)を依存なしで作る。コバルトの正方形に白いチェック
 // 使い方: node scripts/make-icons.mjs
 import { writeFileSync } from 'node:fs'
 import { deflateSync } from 'node:zlib'
 
-const BG = [0x3d, 0x7a, 0x50]
-const FG = [0xff, 0xfc, 0xf6]
+const BG = [0x1f, 0x5f, 0xd6]
+const FG = [0xff, 0xff, 0xff]
 // 512 を基準にしたチェックの折れ線(マスカブル用に中央 60% に収める)
 const POINTS = [
   [150, 270],
