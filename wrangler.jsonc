@@ -11,8 +11,8 @@
     {
       "binding": "DB",
       "database_name": "kaji-board",
-      // `npx wrangler d1 create kaji-board` で出た ID に置き換える(ローカル開発はこのままで動く)
-      "database_id": "00000000-0000-0000-0000-000000000000",
+      // `npx wrangler d1 create kaji-board` で出た ID。自分の環境に入れるときは置き換える
+      "database_id": "1ca1e194-2014-453c-8a2a-72600999f78d",
       "migrations_dir": "migrations"
     }
   ],
