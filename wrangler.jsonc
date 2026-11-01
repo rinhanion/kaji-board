@@ -1,0 +1,23 @@
+{
+  "$schema": "node_modules/wrangler/config-schema.json",
+  "name": "kaji-board",
+  "main": "src/index.ts",
+  "compatibility_date": "2026-10-01",
+  // 画面(public/)は静的アセットとして配信し、/api/* だけ Worker が受ける
+  "assets": {
+    "directory": "./public"
+  },
+  "d1_databases": [
+    {
+      "binding": "DB",
+      "database_name": "kaji-board",
+      // `npx wrangler d1 create kaji-board` で出た ID に置き換える(ローカル開発はこのままで動く)
+      "database_id": "00000000-0000-0000-0000-000000000000",
+      "migrations_dir": "migrations"
+    }
+  ],
+  "triggers": {
+    // Cron は UTC。19:00 UTC = 翌 4:00 JST
+    "crons": ["0 19 * * *"]
+  }
+}

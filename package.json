@@ -1,0 +1,23 @@
+{
+  "name": "kaji-board",
+  "version": "0.1.0",
+  "private": true,
+  "description": "家族で共有する今日の家事ボード(Cloudflare Workers + D1)",
+  "type": "module",
+  "scripts": {
+    "dev": "wrangler dev --ip 0.0.0.0",
+    "db:migrate:local": "wrangler d1 migrations apply kaji-board --local",
+    "db:migrate:remote": "wrangler d1 migrations apply kaji-board --remote",
+    "deploy": "wrangler deploy",
+    "typecheck": "tsc --noEmit",
+    "icons": "node scripts/make-icons.mjs"
+  },
+  "dependencies": {
+    "hono": "^4.13.16"
+  },
+  "devDependencies": {
+    "@cloudflare/workers-types": "^5.20261101.1",
+    "typescript": "^7.0.2",
+    "wrangler": "^4.156.0"
+  }
+}

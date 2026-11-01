@@ -1,0 +1,120 @@
+<!doctype html>
+<html lang="ja">
+<head>
+  <meta charset="utf-8">
+  <meta name="viewport" content="width=device-width, initial-scale=1, viewport-fit=cover">
+  <title>今日の家事</title>
+  <meta name="theme-color" content="#f4eee3" media="(prefers-color-scheme: light)">
+  <meta name="theme-color" content="#1d1b18" media="(prefers-color-scheme: dark)">
+  <meta name="apple-mobile-web-app-capable" content="yes">
+  <meta name="mobile-web-app-capable" content="yes">
+  <meta name="apple-mobile-web-app-status-bar-style" content="default">
+  <meta name="apple-mobile-web-app-title" content="家事">
+  <link rel="manifest" href="/manifest.webmanifest">
+  <link rel="icon" href="/icon.svg" type="image/svg+xml">
+  <link rel="apple-touch-icon" href="/apple-touch-icon.png">
+  <link rel="stylesheet" href="/style.css">
+</head>
+<body>
+  <!-- 合言葉の入力(初回だけ) -->
+  <main id="login" class="screen login" hidden>
+    <h1 class="title">今日の家事</h1>
+    <form id="login-form" class="login-form">
+      <label for="passphrase">家族の合言葉</label>
+      <input id="passphrase" name="passphrase" type="password" autocomplete="current-password" required>
+      <p id="login-error" class="error" role="alert"></p>
+      <button type="submit" class="btn primary big">はじめる</button>
+    </form>
+  </main>
+
+  <!-- ボード本体 -->
+  <main id="board" class="screen" hidden>
+    <header class="top">
+      <div class="top-row">
+        <div>
+          <p id="date" class="date"></p>
+          <h1 class="title">今日の家事</h1>
+        </div>
+        <div class="top-actions">
+          <button id="me-btn" class="chip" type="button" aria-label="自分の名前を選ぶ"></button>
+          <button id="edit-btn" class="icon-btn" type="button" aria-label="家事を編集">
+            <svg viewBox="0 0 24 24" aria-hidden="true"><path d="M4 7h10M18 7h2M4 17h4M12 17h8"/><circle cx="16" cy="7" r="2"/><circle cx="10" cy="17" r="2"/></svg>
+          </button>
+        </div>
+      </div>
+      <div class="progress" role="progressbar" aria-labelledby="progress-label">
+        <p id="progress-label" class="progress-label"></p>
+        <div class="bar"><div id="bar-fill" class="bar-fill"></div></div>
+      </div>
+    </header>
+
+    <p id="all-done" class="all-done" hidden>ぜんぶ おわり! おつかれさま</p>
+    <ul id="list" class="list"></ul>
+    <p id="offline" class="offline" hidden>通信できません。つながると自動で更新します</p>
+
+    <button id="fab" class="fab" type="button" aria-label="今日だけのタスクを追加">
+      <svg viewBox="0 0 24 24" aria-hidden="true"><path d="M12 5v14M5 12h14"/></svg>
+    </button>
+  </main>
+
+  <!-- 元に戻す -->
+  <div id="toast" class="toast" role="status" hidden>
+    <span id="toast-msg"></span>
+    <button id="toast-undo" type="button">元に戻す</button>
+  </div>
+
+  <!-- 今日だけのタスクを追加 -->
+  <dialog id="add-dialog" class="sheet">
+    <form id="add-form" method="dialog">
+      <h2>今日だけのタスク</h2>
+      <input id="add-title" maxlength="40" placeholder="例: 布団を干す" required enterkeyhint="done">
+      <p class="hint">明日の朝 4時に消えます</p>
+      <div class="sheet-actions">
+        <button type="button" class="btn" data-close>やめる</button>
+        <button type="submit" class="btn primary">追加</button>
+      </div>
+    </form>
+  </dialog>
+
+  <!-- 私は○○ -->
+  <dialog id="me-dialog" class="sheet">
+    <h2>あなたは だれ?</h2>
+    <p class="hint">この端末で 1回えらぶと、次からは自動で名前がつきます</p>
+    <div id="me-list" class="me-list"></div>
+    <form id="member-add-form" class="inline-form">
+      <input id="member-add-name" maxlength="12" placeholder="名前を追加" required enterkeyhint="done">
+      <button type="submit" class="btn">追加</button>
+    </form>
+    <div class="sheet-actions">
+      <button type="button" class="btn" data-close>とじる</button>
+    </div>
+  </dialog>
+
+  <!-- 毎日の家事と家族の編集 -->
+  <dialog id="edit-dialog" class="fullscreen">
+    <header class="edit-head">
+      <h2>編集</h2>
+      <button type="button" class="btn primary" data-close>完了</button>
+    </header>
+    <section>
+      <h3>毎日の家事</h3>
+      <ul id="edit-chores" class="edit-list"></ul>
+      <form id="chore-add-form" class="inline-form">
+        <input id="chore-add-title" maxlength="40" placeholder="毎日の家事を追加" required enterkeyhint="done">
+        <button type="submit" class="btn">追加</button>
+      </form>
+    </section>
+    <section>
+      <h3>家族</h3>
+      <ul id="edit-members" class="edit-list"></ul>
+    </section>
+    <section>
+      <h3>リセット</h3>
+      <p class="hint">毎朝 4時に自動で、毎日の家事のチェックを外し、今日だけのタスクを消します。</p>
+      <button id="reset-btn" type="button" class="btn danger">今すぐリセット</button>
+    </section>
+  </dialog>
+
+  <script src="/app.js"></script>
+</body>
+</html>
