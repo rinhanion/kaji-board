@@ -35,8 +35,17 @@
     <header class="top">
       <div class="top-row">
         <div>
-          <p id="date" class="date"></p>
-          <h1 class="title">今日の家事</h1>
+          <!-- ‹ › で過去の日(7 日前まで)をめくる -->
+          <div class="date-nav">
+            <button id="prev-day" class="day-btn" type="button" aria-label="前の日">
+              <svg viewBox="0 0 24 24" aria-hidden="true"><path d="M15 5l-7 7 7 7"/></svg>
+            </button>
+            <p id="date" class="date"></p>
+            <button id="next-day" class="day-btn" type="button" aria-label="次の日">
+              <svg viewBox="0 0 24 24" aria-hidden="true"><path d="M9 5l7 7-7 7"/></svg>
+            </button>
+          </div>
+          <h1 id="title" class="title">今日の家事</h1>
         </div>
         <div class="top-actions">
           <button id="me-btn" class="chip" type="button" aria-label="自分の名前を選ぶ"></button>
@@ -51,6 +60,11 @@
       </div>
     </header>
 
+    <div id="past-bar" class="past-bar" hidden>
+      <p>過去の日です。やり忘れたチェックを、あとから付けられます</p>
+      <button id="today-btn" type="button" class="btn primary">今日に戻る</button>
+    </div>
+    <p id="no-record" class="hint no-record" hidden>この日の記録はありません</p>
     <p id="all-done" class="all-done" hidden>ぜんぶ おわり! おつかれさま</p>
     <ul id="list" class="list"></ul>
     <p id="long-hint" class="long-hint" hidden>カードを長押しすると、ほかの人がやったことにできます</p>
