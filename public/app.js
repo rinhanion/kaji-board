@@ -2,6 +2,7 @@
 
 const POLL_MS = 20_000
 const UNDO_MS = 5_000
+const LONG_PRESS_MS = 500
 const ME_KEY = 'kaji_me'
 
 const $ = (sel) => document.querySelector(sel)
@@ -11,6 +12,7 @@ let version = 0 // 操作のたびに増やす。古いポーリング結果で�
 let pending = 0
 let pendingCheckId = null // 名前を選ぶ前にタップした家事
 let popId = null // 直前にチェックした家事(印を弾ませる)
+let whoTaskId = null // 「だれがやった?」で選んでいる家事
 
 // ---------- 小さな道具 ----------
 
@@ -161,6 +163,7 @@ function render() {
   bar.setAttribute('aria-valuemax', String(total))
   bar.setAttribute('aria-valuenow', String(doneCount))
   $('#all-done').hidden = !(total > 0 && doneCount === total)
+  $('#long-hint').hidden = !(total > 0 && board.members.length >= 2)
 
   const me = meMember()
   const chip = $('#me-btn')
@@ -213,6 +216,7 @@ function taskItem(t) {
       meta ? h('span', { class: 'card-meta' }, meta) : null,
     ),
   )
+  onLongPress(card, () => openWho(t.id))
   const del =
     t.kind === 'once'
       ? h('button', { type: 'button', class: 'del', 'aria-label': `${t.title}を削除`, onclick: () => removeOnce(t) }, '×')
@@ -232,10 +236,14 @@ function check(t) {
   doCheck(t.id, me)
 }
 
-function doCheck(id, member) {
-  const now = Date.now()
+function popCheck(id) {
   popId = id
   setTimeout(() => popId === id && (popId = null), 600)
+}
+
+function doCheck(id, member) {
+  const now = Date.now()
+  popCheck(id)
   mutate(
     (b) => {
       const x = b.tasks.find((y) => y.id === id)
@@ -265,6 +273,98 @@ function doUncheck(id) {
     `/api/tasks/${id}/uncheck`,
   )
 }
+
+// 代理で完了: やった人を指定して完了にする(完了済みなら人だけ付け替える)
+function doAssign(id, member, { toast = true } = {}) {
+  const t = board.tasks.find((y) => y.id === id)
+  if (!t) return
+  const prev = { doneAt: t.doneAt, member: t.doneBy ? { id: t.doneBy, name: t.doneByName } : null }
+  if (!t.doneAt) popCheck(id)
+  const now = Date.now()
+  mutate(
+    (b) => {
+      const x = b.tasks.find((y) => y.id === id)
+      if (x) Object.assign(x, { doneAt: x.doneAt ?? now, doneBy: member.id, doneByName: member.name })
+    },
+    'POST',
+    `/api/tasks/${id}/check`,
+    { memberId: member.id, reassign: true },
+  )
+  if (!toast) return
+  showToast(`「${t.title}」を${member.name}が完了`, () => {
+    if (!prev.doneAt) doUncheck(id)
+    else if (prev.member) doAssign(id, prev.member, { toast: false })
+  })
+}
+
+// 長押しで fn を呼ぶ。長押しのあとのクリック(チェック)は打ち消す
+function onLongPress(el, fn) {
+  let timer = null
+  let fired = false
+  let sx = 0
+  let sy = 0
+  const cancel = () => {
+    clearTimeout(timer)
+    timer = null
+  }
+  el.addEventListener('pointerdown', (e) => {
+    fired = false
+    sx = e.clientX
+    sy = e.clientY
+    timer = setTimeout(() => {
+      timer = null
+      fired = true
+      navigator.vibrate?.(15)
+      fn()
+    }, LONG_PRESS_MS)
+  })
+  el.addEventListener('pointermove', (e) => {
+    if (timer && Math.hypot(e.clientX - sx, e.clientY - sy) > 10) cancel() // スクロールなら取りやめ
+  })
+  for (const type of ['pointerup', 'pointercancel', 'pointerleave']) el.addEventListener(type, cancel)
+  el.addEventListener('contextmenu', (e) => e.preventDefault())
+  el.addEventListener(
+    'click',
+    (e) => {
+      if (!fired) return
+      fired = false
+      e.stopImmediatePropagation()
+      e.preventDefault()
+    },
+    true,
+  )
+}
+
+function openWho(id) {
+  const t = board.tasks.find((y) => y.id === id)
+  if (!t) return
+  whoTaskId = id
+  $('#who-task').textContent = `「${t.title}」をやった人を選んでください`
+  $('#who-undo').hidden = !t.doneAt
+  $('#who-list').replaceChildren(
+    ...(board.members.length
+      ? board.members.map((m) =>
+          h('button', { type: 'button', class: t.doneAt && m.id === t.doneBy ? 'on' : '', onclick: () => chooseWho(m) }, m.name),
+        )
+      : [h('p', { class: 'hint' }, 'まだ だれもいません。右上の「私は…」から名前を追加してください')]),
+  )
+  $('#who-dialog').showModal()
+}
+
+function chooseWho(m) {
+  const id = whoTaskId
+  $('#who-dialog').close()
+  if (id != null) doAssign(id, m)
+}
+
+$('#who-undo').addEventListener('click', () => {
+  const t = board.tasks.find((y) => y.id === whoTaskId)
+  $('#who-dialog').close()
+  if (t?.doneAt) uncheck(t)
+})
+$('#who-dialog').addEventListener('close', () => {
+  whoTaskId = null
+})
 
 function removeOnce(t) {
   if (!confirm(`「${t.title}」を削除しますか?`)) return

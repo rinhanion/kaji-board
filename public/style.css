@@ -188,6 +188,8 @@ input:focus { outline: 2px solid var(--cobalt-500); outline-offset: -1px; }
   text-align: left;
   transition: transform 350ms var(--ease-bounce), opacity 250ms, background-color 250ms;
 }
+/* 長押しで文字選択やメニューが出ないようにする */
+.card { -webkit-touch-callout: none; -webkit-user-select: none; user-select: none; }
 /* 押すと少し傾く */
 .card:active { transform: rotate(-1.5deg) scale(.97); transition-duration: 120ms; }
 
@@ -232,6 +234,8 @@ input:focus { outline: 2px solid var(--cobalt-500); outline-offset: -1px; }
   color: var(--cobalt-700); font-size: 24px; line-height: 1;
 }
 .item.has-del .card { padding-right: 64px; }
+
+.long-hint { margin: var(--space-4) 0 0; color: var(--cobalt-700); font: var(--text-caption); text-align: center; }
 
 .offline { color: var(--danger); background: var(--danger-bg); border-radius: var(--radius-md); padding: var(--space-2) var(--space-4); text-align: center; }
 

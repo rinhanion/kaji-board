@@ -120,12 +120,20 @@ app.use('/api/*', async (c, next) => {
 app.get('/api/board', async (c) => c.json(await getBoard(c.env.DB)))
 
 app.post('/api/tasks/:id/check', async (c) => {
-  const body = await c.req.json<{ memberId?: number }>().catch(() => ({}) as { memberId?: number })
+  const body = await c.req.json<{ memberId?: number; reassign?: boolean }>().catch(() => ({}) as { memberId?: number; reassign?: boolean })
   const memberId = Number(body.memberId) || null
-  // 先にチェックした人を優先する(すでに完了なら上書きしない)
-  await c.env.DB.prepare('UPDATE tasks SET done_by = ?1, done_at = ?2 WHERE id = ?3 AND done_at IS NULL')
-    .bind(memberId, Date.now(), Number(c.req.param('id')))
-    .run()
+  const id = Number(c.req.param('id'))
+  if (body.reassign) {
+    // 代理で完了: 「○○さんがやった」と、やった人を指定する(完了済みなら人だけ付け替える)
+    await c.env.DB.prepare('UPDATE tasks SET done_by = ?1, done_at = COALESCE(done_at, ?2) WHERE id = ?3')
+      .bind(memberId, Date.now(), id)
+      .run()
+  } else {
+    // 先にチェックした人を優先する(すでに完了なら上書きしない)
+    await c.env.DB.prepare('UPDATE tasks SET done_by = ?1, done_at = ?2 WHERE id = ?3 AND done_at IS NULL')
+      .bind(memberId, Date.now(), id)
+      .run()
+  }
   return c.json(await getBoard(c.env.DB))
 })
 

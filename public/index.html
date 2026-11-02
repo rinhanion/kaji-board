@@ -53,6 +53,7 @@
 
     <p id="all-done" class="all-done" hidden>ぜんぶ おわり! おつかれさま</p>
     <ul id="list" class="list"></ul>
+    <p id="long-hint" class="long-hint" hidden>カードを長押しすると、ほかの人がやったことにできます</p>
     <p id="offline" class="offline" hidden>通信できません。つながると自動で更新します</p>
 
     <button id="fab" class="fab" type="button" aria-label="今日だけのタスクを追加">
@@ -89,6 +90,17 @@
       <button type="submit" class="btn">追加</button>
     </form>
     <div class="sheet-actions">
+      <button type="button" class="btn" data-close>とじる</button>
+    </div>
+  </dialog>
+
+  <!-- だれがやった?(カードの長押しで開く。代理で完了にする) -->
+  <dialog id="who-dialog" class="sheet">
+    <h2>だれが やった?</h2>
+    <p id="who-task" class="hint"></p>
+    <div id="who-list" class="me-list"></div>
+    <div class="sheet-actions">
+      <button id="who-undo" type="button" class="btn">未完了に戻す</button>
       <button type="button" class="btn" data-close>とじる</button>
     </div>
   </dialog>
