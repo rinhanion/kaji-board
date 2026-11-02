@@ -4,6 +4,7 @@ const POLL_MS = 20_000
 const UNDO_MS = 5_000
 const LONG_PRESS_MS = 500
 const ME_KEY = 'kaji_me'
+const HISTORY_DAYS = 7 // さかのぼれる日数(サーバーと合わせる)
 
 const $ = (sel) => document.querySelector(sel)
 
@@ -13,6 +14,8 @@ let pending = 0
 let pendingCheckId = null // 名前を選ぶ前にタップした家事
 let popId = null // 直前にチェックした家事(印を弾ませる)
 let whoTaskId = null // 「だれがやった?」で選んでいる家事
+let pastDate = null // 見ている過去の日。null なら今日
+let past = null // 過去の日の記録 { date, tasks }。読み込み中は null
 
 // ---------- 小さな道具 ----------
 
@@ -62,9 +65,32 @@ function formatDate(iso) {
   const w = new Date(Date.UTC(y, m - 1, d)).getUTCDay()
   return `${m}月${d}日(${WEEK[w]})`
 }
+// iso の n 日あと(マイナスなら前)
+function shiftDate(iso, n) {
+  const [y, m, d] = iso.split('-').map(Number)
+  return new Date(Date.UTC(y, m - 1, d + n)).toISOString().slice(0, 10)
+}
+function daysBetween(from, to) {
+  return Math.round((Date.parse(to) - Date.parse(from)) / 86400_000)
+}
+// その家事の日の終わり(翌日の JST 4:00)
+function dayEnd(iso) {
+  return Date.parse(shiftDate(iso, 1)) + (4 - 9) * 3600_000
+}
 function formatTime(ms) {
   const d = new Date(ms)
   return `${d.getHours()}:${String(d.getMinutes()).padStart(2, '0')}`
+}
+
+// 見ている日の家事(今日か、過去の日)
+function view() {
+  return pastDate ? past : board
+}
+function viewTasks() {
+  return view()?.tasks ?? []
+}
+function taskBase() {
+  return pastDate ? '/api/history' : '/api/tasks'
 }
 
 // ---------- 通信 ----------
@@ -95,9 +121,13 @@ async function refresh() {
   if (pending > 0) return
   const v = version
   try {
-    const data = await api('GET', '/api/board')
+    const date = pastDate
+    const [data, hist] = await Promise.all([api('GET', '/api/board'), date ? api('GET', `/api/history/${date}`) : null])
     setOffline(false)
-    if (v === version && pending === 0) apply(data)
+    if (v === version && pending === 0) {
+      apply(data)
+      if (hist) apply(hist)
+    }
   } catch (e) {
     if (!(e instanceof Unauthorized)) setOffline(true)
   }
@@ -107,8 +137,8 @@ async function refresh() {
 async function mutate(optimistic, method, path, body) {
   const v = ++version
   pending++
-  if (optimistic && board) {
-    optimistic(board)
+  if (optimistic && view()) {
+    optimistic(view())
     render()
   }
   try {
@@ -129,10 +159,19 @@ async function mutate(optimistic, method, path, body) {
 async function refreshNow() {
   try {
     apply(await api('GET', '/api/board'))
+    if (pastDate) apply(await api('GET', `/api/history/${pastDate}`))
   } catch {}
 }
 
 function apply(data) {
+  if (data.past) {
+    // 返ってくるまでに別の日へ移っていたら捨てる
+    if (data.past.date === pastDate) {
+      past = data.past
+      render()
+    }
+    return
+  }
   board = { date: data.date, members: data.members, tasks: data.tasks }
   if (getMe() && !meMember()) setMe(null) // 自分の名前が消されていたら選び直し
   render()
@@ -141,8 +180,8 @@ function apply(data) {
 // ---------- 描画 ----------
 
 function sortedTasks() {
-  const undone = board.tasks.filter((t) => !t.doneAt)
-  const done = board.tasks.filter((t) => t.doneAt)
+  const undone = viewTasks().filter((t) => !t.doneAt)
+  const done = viewTasks().filter((t) => t.doneAt)
   // 未完了: 毎日の家事(並び順) → 今日だけ(追加順)。完了: 終わった順
   undone.sort((a, b) => (a.kind === b.kind ? (a.kind === 'daily' ? a.sort - b.sort : a.createdAt - b.createdAt) : a.kind === 'daily' ? -1 : 1))
   done.sort((a, b) => a.doneAt - b.doneAt)
@@ -151,12 +190,22 @@ function sortedTasks() {
 
 function render() {
   if (!board) return
-  $('#date').textContent = formatDate(board.date)
+  const back = pastDate ? daysBetween(pastDate, board.date) : 0
+  const dayName = back === 0 ? '今日' : back === 1 ? 'きのう' : `${back}日前`
+  $('#date').textContent = formatDate(pastDate ?? board.date)
+  $('#title').textContent = `${dayName}の家事`
+  $('#prev-day').disabled = back >= HISTORY_DAYS
+  $('#next-day').disabled = back === 0
+  $('#board').classList.toggle('past', back > 0)
+  $('#past-bar').hidden = back === 0
+  $('#fab').hidden = back > 0
+  $('#no-record').hidden = !(back > 0 && past && past.tasks.length === 0)
 
-  const total = board.tasks.length
-  const doneCount = board.tasks.filter((t) => t.doneAt).length
+  const tasks = viewTasks()
+  const total = tasks.length
+  const doneCount = tasks.filter((t) => t.doneAt).length
   const label = $('#progress-label')
-  label.replaceChildren('今日 ', h('span', { class: 'num' }, `${doneCount}/${total}`), ' 完了')
+  label.replaceChildren(`${dayName} `, h('span', { class: 'num' }, `${doneCount}/${total}`), ' 完了')
   $('#bar-fill').style.width = total ? `${(doneCount / total) * 100}%` : '0'
   const bar = $('.progress')
   bar.setAttribute('aria-valuemin', '0')
@@ -198,7 +247,9 @@ function renderList() {
 
 function taskItem(t) {
   const done = !!t.doneAt
-  const meta = done ? `${t.doneByName ?? 'だれか'} · ${formatTime(t.doneAt)}` : null
+  // 過去の日に、その日が終わってから付けたチェックは時刻ではなく「あとから記録」と出す
+  const late = done && pastDate && t.doneAt >= dayEnd(pastDate)
+  const meta = done ? `${t.doneByName ?? 'だれか'} · ${late ? 'あとから記録' : formatTime(t.doneAt)}` : null
   const card = h(
     'button',
     {
@@ -218,7 +269,7 @@ function taskItem(t) {
   )
   onLongPress(card, () => openWho(t.id))
   const del =
-    t.kind === 'once'
+    t.kind === 'once' && !pastDate
       ? h('button', { type: 'button', class: 'del', 'aria-label': `${t.title}を削除`, onclick: () => removeOnce(t) }, '×')
       : null
   return h('li', { class: `item${del ? ' has-del' : ''}`, 'data-id': String(t.id) }, card, del)
@@ -250,10 +301,10 @@ function doCheck(id, member) {
       if (x && !x.doneAt) Object.assign(x, { doneAt: now, doneBy: member?.id ?? null, doneByName: member?.name ?? null })
     },
     'POST',
-    `/api/tasks/${id}/check`,
+    `${taskBase()}/${id}/check`,
     { memberId: member?.id ?? null },
   )
-  const t = board.tasks.find((y) => y.id === id)
+  const t = viewTasks().find((y) => y.id === id)
   showToast(`「${t?.title ?? ''}」完了`, () => doUncheck(id))
 }
 
@@ -270,13 +321,13 @@ function doUncheck(id) {
       if (x) Object.assign(x, { doneAt: null, doneBy: null, doneByName: null })
     },
     'POST',
-    `/api/tasks/${id}/uncheck`,
+    `${taskBase()}/${id}/uncheck`,
   )
 }
 
 // 代理で完了: やった人を指定して完了にする(完了済みなら人だけ付け替える)
 function doAssign(id, member, { toast = true } = {}) {
-  const t = board.tasks.find((y) => y.id === id)
+  const t = viewTasks().find((y) => y.id === id)
   if (!t) return
   const prev = { doneAt: t.doneAt, member: t.doneBy ? { id: t.doneBy, name: t.doneByName } : null }
   if (!t.doneAt) popCheck(id)
@@ -287,7 +338,7 @@ function doAssign(id, member, { toast = true } = {}) {
       if (x) Object.assign(x, { doneAt: x.doneAt ?? now, doneBy: member.id, doneByName: member.name })
     },
     'POST',
-    `/api/tasks/${id}/check`,
+    `${taskBase()}/${id}/check`,
     { memberId: member.id, reassign: true },
   )
   if (!toast) return
@@ -336,7 +387,7 @@ function onLongPress(el, fn) {
 }
 
 function openWho(id) {
-  const t = board.tasks.find((y) => y.id === id)
+  const t = viewTasks().find((y) => y.id === id)
   if (!t) return
   whoTaskId = id
   $('#who-task').textContent = `「${t.title}」をやった人を選んでください`
@@ -358,7 +409,7 @@ function chooseWho(m) {
 }
 
 $('#who-undo').addEventListener('click', () => {
-  const t = board.tasks.find((y) => y.id === whoTaskId)
+  const t = viewTasks().find((y) => y.id === whoTaskId)
   $('#who-dialog').close()
   if (t?.doneAt) uncheck(t)
 })
@@ -370,6 +421,30 @@ function removeOnce(t) {
   if (!confirm(`「${t.title}」を削除しますか?`)) return
   mutate((b) => (b.tasks = b.tasks.filter((x) => x.id !== t.id)), 'DELETE', `/api/tasks/${t.id}`)
 }
+
+// ---------- 過去の日 ----------
+
+// 今日から back 日前を見る(0 なら今日)
+async function showDay(back) {
+  if (!board) return
+  back = Math.max(0, Math.min(HISTORY_DAYS, back))
+  pastDate = back ? shiftDate(board.date, -back) : null
+  past = null
+  hideToast() // 元に戻すは、前に見ていた日の操作なので消す
+  render()
+  if (!pastDate) return
+  try {
+    apply(await api('GET', `/api/history/${pastDate}`))
+  } catch (e) {
+    if (!(e instanceof Unauthorized)) alert(e.message)
+  }
+}
+function currentBack() {
+  return pastDate ? daysBetween(pastDate, board.date) : 0
+}
+$('#prev-day').addEventListener('click', () => showDay(currentBack() + 1))
+$('#next-day').addEventListener('click', () => showDay(currentBack() - 1))
+$('#today-btn').addEventListener('click', () => showDay(0))
 
 // ---------- 元に戻す ----------
 

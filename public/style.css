@@ -69,10 +69,10 @@ button, input { font: inherit; color: inherit; }
 button { cursor: pointer; touch-action: manipulation; }
 
 /* 押すと縮み、離すと弾んで戻る */
-.btn, .chip, .icon-btn, .fab, .del, .toast button, .me-list button, .edit-row button {
+.btn, .chip, .icon-btn, .day-btn, .fab, .del, .toast button, .me-list button, .edit-row button {
   transition: transform 400ms var(--ease-bounce), background-color 150ms, color 150ms;
 }
-.btn:active, .chip:active, .icon-btn:active, .fab:active, .del:active,
+.btn:active, .chip:active, .icon-btn:active, .day-btn:active:not(:disabled), .fab:active, .del:active,
 .toast button:active, .me-list button:active, .edit-row button:active:not(:disabled) {
   transform: scale(.9);
   transition-duration: 80ms;
@@ -152,6 +152,16 @@ input:focus { outline: 2px solid var(--cobalt-500); outline-offset: -1px; }
   background: var(--cobalt-50);
   color: var(--cobalt-700);
 }
+.date-nav { display: flex; align-items: center; gap: 2px; margin-left: -10px; }
+.day-btn {
+  width: 40px; height: 40px;
+  display: grid; place-items: center;
+  border: 0; border-radius: var(--radius-pill);
+  background: transparent;
+  color: var(--cobalt-700);
+}
+.day-btn:disabled { opacity: .25; }
+.day-btn svg { width: 20px; height: 20px; fill: none; stroke: currentColor; stroke-width: 2.4; stroke-linecap: round; stroke-linejoin: round; }
 .icon-btn svg, .fab svg { width: 24px; height: 24px; fill: none; stroke: currentColor; stroke-width: 2; stroke-linecap: round; }
 
 .progress { margin-top: var(--space-6); }
@@ -159,6 +169,24 @@ input:focus { outline: 2px solid var(--cobalt-500); outline-offset: -1px; }
 .progress-label .num { font: var(--text-display); font-variant-numeric: tabular-nums; margin: 0 2px; }
 .bar { height: 12px; background: var(--cobalt-50); border-radius: var(--radius-pill); overflow: hidden; }
 .bar-fill { height: 100%; width: 0; background: var(--cobalt-700); border-radius: inherit; transition: width 600ms var(--ease-bounce); }
+
+/* --- 過去の日 --- */
+/* 今日と見まちがえないよう、紙の色をコバルトに寄せる */
+#board.past { background: var(--cobalt-50); border-radius: 0 0 var(--radius-lg) var(--radius-lg); }
+body:has(#board.past) { background: var(--cobalt-50); }
+.past .card.done { border-color: var(--cobalt-200); }
+.past .chip, .past .icon-btn, .past .bar, .past .tag { background: var(--paper-raised); }
+.past-bar {
+  display: flex; align-items: center; gap: var(--space-3);
+  margin: 0 0 var(--space-3);
+  padding: var(--space-3) var(--space-3) var(--space-3) var(--space-4);
+  border: 1.5px dashed var(--cobalt-500);
+  border-radius: var(--radius-lg);
+  color: var(--cobalt-700);
+  font-weight: 500;
+}
+.past-bar p { flex: 1; margin: 0; line-height: 1.6; }
+.no-record { text-align: center; margin: var(--space-6) 0; }
 
 .all-done {
   margin: 0 0 var(--space-3);
@@ -328,5 +356,5 @@ dialog h3 { font: var(--text-subheading); color: var(--cobalt-700); margin: 0 0 
 /* 弾みを切り、色の変化だけにする */
 @media (prefers-reduced-motion: reduce) {
   *, *::before, *::after { animation: none !important; transition-property: background-color, color, opacity !important; }
-  .card:active, .btn:active, .chip:active, .icon-btn:active, .fab:active { transform: none; }
+  .card:active, .btn:active, .chip:active, .icon-btn:active, .day-btn:active, .fab:active { transform: none; }
 }

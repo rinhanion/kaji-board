@@ -42,9 +42,25 @@ function sameString(a: string, b: string): boolean {
   return diff === 0
 }
 
-// 毎日の家事のチェックを外し、今日だけのタスクを消す
-async function resetBoard(db: D1Database, date: string) {
+// 毎日の家事のチェックを外し、今日だけのタスクを消す。
+// archiveDate があれば、消す前にその日付で history に写しておく(同じ日付をもう一度写したら上書き)
+async function resetBoard(db: D1Database, date: string, archiveDate?: string) {
+  const archive = archiveDate
+    ? [
+        db
+          .prepare(
+            `INSERT INTO history (date, task_id, title, kind, sort, created_at, done_by, done_by_name, done_at)
+             SELECT ?1, t.id, t.title, t.kind, t.sort, t.created_at, t.done_by, m.name, t.done_at
+             FROM tasks t LEFT JOIN members m ON m.id = t.done_by
+             WHERE true
+             ON CONFLICT (date, task_id) DO UPDATE SET
+               title = excluded.title, done_by = excluded.done_by, done_by_name = excluded.done_by_name, done_at = excluded.done_at`,
+          )
+          .bind(archiveDate),
+      ]
+    : []
   await db.batch([
+    ...archive,
     db.prepare("UPDATE tasks SET done_by = NULL, done_at = NULL WHERE kind = 'daily'"),
     db.prepare("DELETE FROM tasks WHERE kind = 'once'"),
     db
@@ -57,13 +73,15 @@ async function resetBoard(db: D1Database, date: string) {
 // board_date の更新に成功した 1 リクエストだけがリセットするので、同時アクセスでも二重に走らない
 async function ensureToday(db: D1Database) {
   const today = boardDate()
+  const prev = await db.prepare("SELECT value FROM meta WHERE key = 'board_date'").first<{ value: string }>()
+  if (prev?.value === today) return
   const res = await db
     .prepare(
       "INSERT INTO meta (key, value) VALUES ('board_date', ?1) ON CONFLICT(key) DO UPDATE SET value = excluded.value WHERE meta.value <> ?1",
     )
     .bind(today)
     .run()
-  if (res.meta.changes > 0) await resetBoard(db, today)
+  if (res.meta.changes > 0) await resetBoard(db, today, prev?.value)
 }
 
 async function getBoard(db: D1Database) {
@@ -179,6 +197,73 @@ app.post('/api/tasks/reorder', async (c) => {
     body.ids.map((id, i) => db.prepare("UPDATE tasks SET sort = ?1 WHERE id = ?2 AND kind = 'daily'").bind(i + 1, Number(id))),
   )
   return c.json(await getBoard(db))
+})
+
+// ---------- 過去の日 ----------
+
+// 画面でさかのぼれる日数
+const HISTORY_DAYS = 7
+
+// 見られる過去の日付か(昨日〜7 日前)
+function pastDateOk(date: string): boolean {
+  if (!/^\d{4}-\d{2}-\d{2}$/.test(date)) return false
+  const oldest = boardDate(Date.now() - HISTORY_DAYS * 86400_000)
+  return date >= oldest && date < boardDate()
+}
+
+async function getHistory(db: D1Database, date: string) {
+  const tasks = await db
+    .prepare(
+      `SELECT h.id, h.title, h.kind, h.sort, h.done_by AS doneBy, COALESCE(m.name, h.done_by_name) AS doneByName,
+         h.done_at AS doneAt, h.created_at AS createdAt
+       FROM history h LEFT JOIN members m ON m.id = h.done_by
+       WHERE h.date = ?1
+       ORDER BY h.kind = 'once', h.sort, h.id`,
+    )
+    .bind(date)
+    .all()
+  return { past: { date, tasks: tasks.results } }
+}
+
+// 書き換える記録の日付。見られない日の記録なら null
+async function historyDate(db: D1Database, id: number): Promise<string | null> {
+  const row = await db.prepare('SELECT date FROM history WHERE id = ?1').bind(id).first<{ date: string }>()
+  return row && pastDateOk(row.date) ? row.date : null
+}
+
+app.get('/api/history/:date', async (c) => {
+  const date = c.req.param('date')
+  if (!pastDateOk(date)) return c.json({ error: `見られるのは ${HISTORY_DAYS} 日前までです` }, 400)
+  return c.json(await getHistory(c.env.DB, date))
+})
+
+// 過去の日の家事を完了にする。中身は /api/tasks/:id/check と同じ
+app.post('/api/history/:id/check', async (c) => {
+  const body = await c.req.json<{ memberId?: number; reassign?: boolean }>().catch(() => ({}) as { memberId?: number; reassign?: boolean })
+  const memberId = Number(body.memberId) || null
+  const id = Number(c.req.param('id'))
+  const db = c.env.DB
+  const date = await historyDate(db, id)
+  if (!date) return c.json({ error: `書き換えられるのは ${HISTORY_DAYS} 日前までです` }, 400)
+  const name = '(SELECT name FROM members WHERE id = ?1)'
+  await db
+    .prepare(
+      body.reassign
+        ? `UPDATE history SET done_by = ?1, done_by_name = ${name}, done_at = COALESCE(done_at, ?2) WHERE id = ?3`
+        : `UPDATE history SET done_by = ?1, done_by_name = ${name}, done_at = ?2 WHERE id = ?3 AND done_at IS NULL`,
+    )
+    .bind(memberId, Date.now(), id)
+    .run()
+  return c.json(await getHistory(db, date))
+})
+
+app.post('/api/history/:id/uncheck', async (c) => {
+  const id = Number(c.req.param('id'))
+  const db = c.env.DB
+  const date = await historyDate(db, id)
+  if (!date) return c.json({ error: `書き換えられるのは ${HISTORY_DAYS} 日前までです` }, 400)
+  await db.prepare('UPDATE history SET done_by = NULL, done_by_name = NULL, done_at = NULL WHERE id = ?1').bind(id).run()
+  return c.json(await getHistory(db, date))
 })
 
 app.post('/api/members', async (c) => {
