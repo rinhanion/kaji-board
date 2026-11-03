@@ -325,6 +325,13 @@ dialog h3 { font: var(--text-subheading); color: var(--cobalt-700); margin: 0 0 
 }
 .me-list button.on { background: var(--cobalt-50); border-color: var(--cobalt-500); color: var(--cobalt-700); }
 
+/* だれが やった?: 何人でも選べるので、選んだ人にチェックを付ける */
+.who-list button { display: flex; align-items: center; justify-content: center; gap: 6px; }
+.who-list button svg { width: 20px; height: 20px; fill: none; stroke: currentColor; stroke-width: 3; stroke-linecap: round; stroke-linejoin: round; visibility: hidden; }
+.who-list button.on svg { visibility: visible; }
+.who-actions #who-undo { margin-right: auto; }
+#who-ok:disabled { opacity: .4; }
+
 .inline-form { display: flex; gap: var(--space-2); }
 .inline-form input { flex: 1; }
 

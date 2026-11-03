@@ -14,6 +14,7 @@ let pending = 0
 let pendingCheckId = null // 名前を選ぶ前にタップした家事
 let popId = null // 直前にチェックした家事(印を弾ませる)
 let whoTaskId = null // 「だれがやった?」で選んでいる家事
+let whoPicked = new Set() // 「だれがやった?」で選ばれている人の id
 let pastDate = null // 見ている過去の日。null なら今日
 let past = null // 過去の日の記録 { date, tasks }。読み込み中は null
 
@@ -249,7 +250,7 @@ function taskItem(t) {
   const done = !!t.doneAt
   // 過去の日に、その日が終わってから付けたチェックは時刻ではなく「あとから記録」と出す
   const late = done && pastDate && t.doneAt >= dayEnd(pastDate)
-  const meta = done ? `${t.doneByName ?? 'だれか'} · ${late ? 'あとから記録' : formatTime(t.doneAt)}` : null
+  const meta = done ? `${t.doers.map((d) => d.name).join('・') || 'だれか'} · ${late ? 'あとから記録' : formatTime(t.doneAt)}` : null
   const card = h(
     'button',
     {
@@ -284,7 +285,7 @@ function check(t) {
     openMeDialog()
     return
   }
-  doCheck(t.id, me)
+  doCheck(t.id, [me])
 }
 
 function popCheck(id) {
@@ -292,59 +293,60 @@ function popCheck(id) {
   setTimeout(() => popId === id && (popId = null), 600)
 }
 
-function doCheck(id, member) {
+// doers: やった人 [{ id, name }](元に戻すときは前の人たち。だれもいなければ空)
+function doCheck(id, doers) {
   const now = Date.now()
   popCheck(id)
   mutate(
     (b) => {
       const x = b.tasks.find((y) => y.id === id)
-      if (x && !x.doneAt) Object.assign(x, { doneAt: now, doneBy: member?.id ?? null, doneByName: member?.name ?? null })
+      if (x && !x.doneAt) Object.assign(x, { doneAt: now, doers })
     },
     'POST',
     `${taskBase()}/${id}/check`,
-    { memberId: member?.id ?? null },
+    { memberIds: doers.map((d) => d.id) },
   )
   const t = viewTasks().find((y) => y.id === id)
   showToast(`「${t?.title ?? ''}」完了`, () => doUncheck(id))
 }
 
 function uncheck(t) {
-  const prev = { id: t.doneBy, name: t.doneByName }
+  const prev = t.doers
   doUncheck(t.id)
-  showToast(`「${t.title}」を未完了に戻しました`, () => doCheck(t.id, prev.id ? prev : null))
+  showToast(`「${t.title}」を未完了に戻しました`, () => doCheck(t.id, prev))
 }
 
 function doUncheck(id) {
   mutate(
     (b) => {
       const x = b.tasks.find((y) => y.id === id)
-      if (x) Object.assign(x, { doneAt: null, doneBy: null, doneByName: null })
+      if (x) Object.assign(x, { doneAt: null, doers: [] })
     },
     'POST',
     `${taskBase()}/${id}/uncheck`,
   )
 }
 
-// 代理で完了: やった人を指定して完了にする(完了済みなら人だけ付け替える)
-function doAssign(id, member, { toast = true } = {}) {
+// 代理で完了: やった人たちを指定して完了にする(完了済みなら人だけ付け替える)
+function doAssign(id, doers, { toast = true } = {}) {
   const t = viewTasks().find((y) => y.id === id)
   if (!t) return
-  const prev = { doneAt: t.doneAt, member: t.doneBy ? { id: t.doneBy, name: t.doneByName } : null }
+  const prev = { doneAt: t.doneAt, doers: t.doers }
   if (!t.doneAt) popCheck(id)
   const now = Date.now()
   mutate(
     (b) => {
       const x = b.tasks.find((y) => y.id === id)
-      if (x) Object.assign(x, { doneAt: x.doneAt ?? now, doneBy: member.id, doneByName: member.name })
+      if (x) Object.assign(x, { doneAt: x.doneAt ?? now, doers })
     },
     'POST',
     `${taskBase()}/${id}/check`,
-    { memberId: member.id, reassign: true },
+    { memberIds: doers.map((d) => d.id), reassign: true },
   )
   if (!toast) return
-  showToast(`「${t.title}」を${member.name}が完了`, () => {
+  showToast(`「${t.title}」を${doers.map((d) => d.name).join('と')}が完了`, () => {
     if (!prev.doneAt) doUncheck(id)
-    else if (prev.member) doAssign(id, prev.member, { toast: false })
+    else doAssign(id, prev.doers, { toast: false })
   })
 }
 
@@ -386,27 +388,48 @@ function onLongPress(el, fn) {
   )
 }
 
+// 「だれが やった?」: 何人でも選べる。開いたときは、完了済みならその人たち、未完了なら自分を選んでおく
 function openWho(id) {
   const t = viewTasks().find((y) => y.id === id)
   if (!t) return
   whoTaskId = id
-  $('#who-task').textContent = `「${t.title}」をやった人を選んでください`
+  whoPicked = new Set(t.doneAt ? t.doers.map((d) => d.id) : meMember() ? [meMember().id] : [])
+  $('#who-task').textContent = `「${t.title}」をやった人を選んでください(何人でも)`
   $('#who-undo').hidden = !t.doneAt
-  $('#who-list').replaceChildren(
-    ...(board.members.length
-      ? board.members.map((m) =>
-          h('button', { type: 'button', class: t.doneAt && m.id === t.doneBy ? 'on' : '', onclick: () => chooseWho(m) }, m.name),
-        )
-      : [h('p', { class: 'hint' }, 'まだ だれもいません。右上の「私は…」から名前を追加してください')]),
-  )
+  renderWhoList()
   $('#who-dialog').showModal()
 }
 
-function chooseWho(m) {
-  const id = whoTaskId
-  $('#who-dialog').close()
-  if (id != null) doAssign(id, m)
+function renderWhoList() {
+  $('#who-list').replaceChildren(
+    ...(board.members.length
+      ? board.members.map((m) =>
+          h(
+            'button',
+            {
+              type: 'button',
+              class: whoPicked.has(m.id) ? 'on' : '',
+              'aria-pressed': whoPicked.has(m.id) ? 'true' : 'false',
+              onclick: () => {
+                whoPicked.has(m.id) ? whoPicked.delete(m.id) : whoPicked.add(m.id)
+                renderWhoList()
+              },
+            },
+            svgCheck(),
+            m.name,
+          ),
+        )
+      : [h('p', { class: 'hint' }, 'まだ だれもいません。右上の「私は…」から名前を追加してください')]),
+  )
+  $('#who-ok').disabled = !board.members.some((m) => whoPicked.has(m.id))
 }
+
+$('#who-ok').addEventListener('click', () => {
+  const id = whoTaskId
+  const doers = board.members.filter((m) => whoPicked.has(m.id)).map((m) => ({ id: m.id, name: m.name }))
+  $('#who-dialog').close()
+  if (id != null && doers.length) doAssign(id, doers)
+})
 
 $('#who-undo').addEventListener('click', () => {
   const t = viewTasks().find((y) => y.id === whoTaskId)
@@ -498,7 +521,7 @@ $('#add-form').addEventListener('submit', (e) => {
   $('#add-dialog').close()
   const tempId = -Date.now()
   mutate(
-    (b) => b.tasks.push({ id: tempId, title, kind: 'once', sort: 0, doneAt: null, doneBy: null, doneByName: null, createdAt: Date.now() }),
+    (b) => b.tasks.push({ id: tempId, title, kind: 'once', sort: 0, doneAt: null, doers: [], createdAt: Date.now() }),
     'POST',
     '/api/tasks',
     { title, kind: 'once' },

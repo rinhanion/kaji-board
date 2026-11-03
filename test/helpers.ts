@@ -10,6 +10,7 @@ export const daysAgo = (n: number) => boardDate(Date.now() - n * DAY)
 export async function seed() {
   const db = env.DB
   await db.batch([
+    db.prepare('DELETE FROM history_doers'),
     db.prepare('DELETE FROM history'),
     db.prepare('DELETE FROM tasks'),
     db.prepare('DELETE FROM members'),
@@ -50,7 +51,7 @@ export async function authCookie(): Promise<string> {
   return cookie
 }
 
-type Task = { id: number; title: string; kind: string; doneBy: number | null; doneByName: string | null; doneAt: number | null }
+type Task = { id: number; title: string; kind: string; doers: { id: number; name: string }[]; doneAt: number | null }
 
 // ログイン済みで API を呼び、JSON を返す
 export async function api<T = { date: string; tasks: Task[]; past?: { date: string; tasks: Task[] }; error?: string }>(
@@ -67,6 +68,9 @@ export async function runCron() {
   await worker.scheduled(createScheduledController({ scheduledTime: Date.now(), cron: '0 19 * * *' }), env, ctx)
   await waitOnExecutionContext(ctx)
 }
+
+// やった人の名前の一覧
+export const names = (t: Task) => t.doers.map((d) => d.name)
 
 export function find(tasks: Task[] | undefined, title: string) {
   const t = tasks?.find((x) => x.title === title)

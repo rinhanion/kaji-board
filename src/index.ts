@@ -49,19 +49,26 @@ async function resetBoard(db: D1Database, date: string, archiveDate?: string) {
     ? [
         db
           .prepare(
-            `INSERT INTO history (date, task_id, title, kind, sort, created_at, done_by, done_by_name, done_at)
-             SELECT ?1, t.id, t.title, t.kind, t.sort, t.created_at, t.done_by, m.name, t.done_at
-             FROM tasks t LEFT JOIN members m ON m.id = t.done_by
+            `INSERT INTO history (date, task_id, title, kind, sort, created_at, done_at)
+             SELECT ?1, id, title, kind, sort, created_at, done_at FROM tasks
              WHERE true
-             ON CONFLICT (date, task_id) DO UPDATE SET
-               title = excluded.title, done_by = excluded.done_by, done_by_name = excluded.done_by_name, done_at = excluded.done_at`,
+             ON CONFLICT (date, task_id) DO UPDATE SET title = excluded.title, done_at = excluded.done_at`,
+          )
+          .bind(archiveDate),
+        db.prepare('DELETE FROM history_doers WHERE history_id IN (SELECT id FROM history WHERE date = ?1)').bind(archiveDate),
+        db
+          .prepare(
+            `INSERT INTO history_doers (history_id, member_id, name)
+             SELECT h.id, m.id, m.name
+             FROM task_doers d JOIN members m ON m.id = d.member_id JOIN history h ON h.date = ?1 AND h.task_id = d.task_id`,
           )
           .bind(archiveDate),
       ]
     : []
   await db.batch([
     ...archive,
-    db.prepare("UPDATE tasks SET done_by = NULL, done_at = NULL WHERE kind = 'daily'"),
+    db.prepare('DELETE FROM task_doers'),
+    db.prepare("UPDATE tasks SET done_at = NULL WHERE kind = 'daily'"),
     db.prepare("DELETE FROM tasks WHERE kind = 'once'"),
     db
       .prepare("INSERT INTO meta (key, value) VALUES ('board_date', ?1) ON CONFLICT(key) DO UPDATE SET value = excluded.value")
@@ -84,16 +91,62 @@ async function ensureToday(db: D1Database) {
   if (res.meta.changes > 0) await resetBoard(db, today, prev?.value)
 }
 
+type Doer = { taskId: number; id: number; name: string }
+
+// 家事ごとに、やった人の一覧 doers を付ける
+function withDoers(tasks: unknown[], doers: unknown[]) {
+  return (tasks as { id: number }[]).map((t) => ({
+    ...t,
+    doers: (doers as Doer[]).filter((d) => d.taskId === t.id).map(({ id, name }) => ({ id, name })),
+  }))
+}
+
 async function getBoard(db: D1Database) {
-  const [members, tasks] = await db.batch([
+  const [members, tasks, doers] = await db.batch([
     db.prepare('SELECT id, name FROM members ORDER BY sort, id'),
     db.prepare(
-      `SELECT t.id, t.title, t.kind, t.sort, t.done_by AS doneBy, m.name AS doneByName, t.done_at AS doneAt, t.created_at AS createdAt
-       FROM tasks t LEFT JOIN members m ON m.id = t.done_by
-       ORDER BY t.kind = 'once', t.sort, t.id`,
+      `SELECT id, title, kind, sort, done_at AS doneAt, created_at AS createdAt
+       FROM tasks ORDER BY kind = 'once', sort, id`,
+    ),
+    db.prepare(
+      `SELECT d.task_id AS taskId, m.id, m.name
+       FROM task_doers d JOIN members m ON m.id = d.member_id ORDER BY m.sort, m.id`,
     ),
   ])
-  return { date: boardDate(), members: members.results, tasks: tasks.results }
+  return { date: boardDate(), members: members.results, tasks: withDoers(tasks.results, doers.results) }
+}
+
+// やった人の id。古い画面が送ってくる memberId(1 人)も受ける
+function memberIdsOf(body: { memberIds?: unknown; memberId?: unknown }): number[] {
+  const raw = Array.isArray(body.memberIds) ? body.memberIds : [body.memberId]
+  return [...new Set(raw.map(Number).filter((n) => Number.isInteger(n) && n > 0))]
+}
+
+// 完了にする。reassign なら、やった人を入れ替える(完了済みなら時刻はそのまま)。
+// そうでなければ未完了のときだけ完了にし、やった人も付ける(先にチェックした人を優先)
+async function checkTask(db: D1Database, target: 'tasks' | 'history', id: number, memberIds: number[], reassign: boolean) {
+  const now = Date.now()
+  const [doers, key, cols, vals] =
+    target === 'tasks' ? ['task_doers', 'task_id', 'member_id', 'm.id'] : ['history_doers', 'history_id', 'member_id, name', 'm.id, m.name']
+  const inserts = memberIds.map((m) =>
+    db
+      .prepare(
+        `INSERT OR IGNORE INTO ${doers} (${key}, ${cols})
+         SELECT t.id, ${vals} FROM ${target} t, members m WHERE t.id = ?1 AND m.id = ?2`,
+      )
+      .bind(id, m),
+  )
+  if (reassign) {
+    await db.batch([
+      db.prepare(`UPDATE ${target} SET done_at = COALESCE(done_at, ?2) WHERE id = ?1`).bind(id, now),
+      db.prepare(`DELETE FROM ${doers} WHERE ${key} = ?1`).bind(id),
+      ...inserts,
+    ])
+    return
+  }
+  // 完了にできたとき(先にだれも完了にしていなかったとき)だけ、やった人を付ける
+  const done = await db.prepare(`UPDATE ${target} SET done_at = ?2 WHERE id = ?1 AND done_at IS NULL RETURNING id`).bind(id, now).first()
+  if (done && inserts.length) await db.batch(inserts)
 }
 
 function cleanText(v: unknown, max: number): string | null {
@@ -137,29 +190,24 @@ app.use('/api/*', async (c, next) => {
 
 app.get('/api/board', async (c) => c.json(await getBoard(c.env.DB)))
 
+type CheckBody = { memberIds?: unknown; memberId?: unknown; reassign?: boolean }
+
+// タップは自分 1 人で完了。長押しの「だれが やった?」は reassign で、選んだ人たちに入れ替える
 app.post('/api/tasks/:id/check', async (c) => {
-  const body = await c.req.json<{ memberId?: number; reassign?: boolean }>().catch(() => ({}) as { memberId?: number; reassign?: boolean })
-  const memberId = Number(body.memberId) || null
-  const id = Number(c.req.param('id'))
-  if (body.reassign) {
-    // 代理で完了: 「○○さんがやった」と、やった人を指定する(完了済みなら人だけ付け替える)
-    await c.env.DB.prepare('UPDATE tasks SET done_by = ?1, done_at = COALESCE(done_at, ?2) WHERE id = ?3')
-      .bind(memberId, Date.now(), id)
-      .run()
-  } else {
-    // 先にチェックした人を優先する(すでに完了なら上書きしない)
-    await c.env.DB.prepare('UPDATE tasks SET done_by = ?1, done_at = ?2 WHERE id = ?3 AND done_at IS NULL')
-      .bind(memberId, Date.now(), id)
-      .run()
-  }
-  return c.json(await getBoard(c.env.DB))
+  const body = await c.req.json<CheckBody>().catch(() => ({}) as CheckBody)
+  const db = c.env.DB
+  await checkTask(db, 'tasks', Number(c.req.param('id')), memberIdsOf(body), !!body.reassign)
+  return c.json(await getBoard(db))
 })
 
 app.post('/api/tasks/:id/uncheck', async (c) => {
-  await c.env.DB.prepare('UPDATE tasks SET done_by = NULL, done_at = NULL WHERE id = ?1')
-    .bind(Number(c.req.param('id')))
-    .run()
-  return c.json(await getBoard(c.env.DB))
+  const id = Number(c.req.param('id'))
+  const db = c.env.DB
+  await db.batch([
+    db.prepare('UPDATE tasks SET done_at = NULL WHERE id = ?1').bind(id),
+    db.prepare('DELETE FROM task_doers WHERE task_id = ?1').bind(id),
+  ])
+  return c.json(await getBoard(db))
 })
 
 app.post('/api/tasks', async (c) => {
@@ -212,17 +260,23 @@ function pastDateOk(date: string): boolean {
 }
 
 async function getHistory(db: D1Database, date: string) {
-  const tasks = await db
-    .prepare(
-      `SELECT h.id, h.title, h.kind, h.sort, h.done_by AS doneBy, COALESCE(m.name, h.done_by_name) AS doneByName,
-         h.done_at AS doneAt, h.created_at AS createdAt
-       FROM history h LEFT JOIN members m ON m.id = h.done_by
-       WHERE h.date = ?1
-       ORDER BY h.kind = 'once', h.sort, h.id`,
-    )
-    .bind(date)
-    .all()
-  return { past: { date, tasks: tasks.results } }
+  const [tasks, doers] = await db.batch([
+    db
+      .prepare(
+        `SELECT id, title, kind, sort, done_at AS doneAt, created_at AS createdAt
+         FROM history WHERE date = ?1 ORDER BY kind = 'once', sort, id`,
+      )
+      .bind(date),
+    // 消された家族は、写しておいた名前で出す
+    db
+      .prepare(
+        `SELECT d.history_id AS taskId, d.member_id AS id, COALESCE(m.name, d.name) AS name
+         FROM history_doers d JOIN history h ON h.id = d.history_id LEFT JOIN members m ON m.id = d.member_id
+         WHERE h.date = ?1 ORDER BY m.sort IS NULL, m.sort, d.member_id`,
+      )
+      .bind(date),
+  ])
+  return { past: { date, tasks: withDoers(tasks.results, doers.results) } }
 }
 
 // 書き換える記録の日付。見られない日の記録なら null
@@ -239,21 +293,12 @@ app.get('/api/history/:date', async (c) => {
 
 // 過去の日の家事を完了にする。中身は /api/tasks/:id/check と同じ
 app.post('/api/history/:id/check', async (c) => {
-  const body = await c.req.json<{ memberId?: number; reassign?: boolean }>().catch(() => ({}) as { memberId?: number; reassign?: boolean })
-  const memberId = Number(body.memberId) || null
+  const body = await c.req.json<CheckBody>().catch(() => ({}) as CheckBody)
   const id = Number(c.req.param('id'))
   const db = c.env.DB
   const date = await historyDate(db, id)
   if (!date) return c.json({ error: `書き換えられるのは ${HISTORY_DAYS} 日前までです` }, 400)
-  const name = '(SELECT name FROM members WHERE id = ?1)'
-  await db
-    .prepare(
-      body.reassign
-        ? `UPDATE history SET done_by = ?1, done_by_name = ${name}, done_at = COALESCE(done_at, ?2) WHERE id = ?3`
-        : `UPDATE history SET done_by = ?1, done_by_name = ${name}, done_at = ?2 WHERE id = ?3 AND done_at IS NULL`,
-    )
-    .bind(memberId, Date.now(), id)
-    .run()
+  await checkTask(db, 'history', id, memberIdsOf(body), !!body.reassign)
   return c.json(await getHistory(db, date))
 })
 
@@ -262,7 +307,10 @@ app.post('/api/history/:id/uncheck', async (c) => {
   const db = c.env.DB
   const date = await historyDate(db, id)
   if (!date) return c.json({ error: `書き換えられるのは ${HISTORY_DAYS} 日前までです` }, 400)
-  await db.prepare('UPDATE history SET done_by = NULL, done_by_name = NULL, done_at = NULL WHERE id = ?1').bind(id).run()
+  await db.batch([
+    db.prepare('UPDATE history SET done_at = NULL WHERE id = ?1').bind(id),
+    db.prepare('DELETE FROM history_doers WHERE history_id = ?1').bind(id),
+  ])
   return c.json(await getHistory(db, date))
 })
 
@@ -287,13 +335,9 @@ app.patch('/api/members/:id', async (c) => {
 })
 
 app.delete('/api/members/:id', async (c) => {
-  const id = Number(c.req.param('id'))
-  const db = c.env.DB
-  await db.batch([
-    db.prepare('UPDATE tasks SET done_by = NULL WHERE done_by = ?1').bind(id),
-    db.prepare('DELETE FROM members WHERE id = ?1').bind(id),
-  ])
-  return c.json(await getBoard(db))
+  // やった人からは task_doers の ON DELETE CASCADE で外れる
+  await c.env.DB.prepare('DELETE FROM members WHERE id = ?1').bind(Number(c.req.param('id'))).run()
+  return c.json(await getBoard(c.env.DB))
 })
 
 // 手動リセット(編集画面のボタン、動作確認用)
