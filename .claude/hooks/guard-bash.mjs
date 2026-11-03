@@ -8,7 +8,7 @@ const command = String(input.tool_input?.command ?? '')
 // コミットメッセージや PR 本文で「.dev.vars」と書いただけで止めないため
 const code = command
   .replace(/<<-?\s*(['"]?)(\w+)\1[\s\S]*?\n\2(?=\n|$)/g, ' ')
-  .replace(/"[^"]*\s[^"]*"|'[^']*\s[^']*'/g, ' ')
+  .replace(/"(?:[^"\\]|\\.)*"|'[^']*'/g, (q) => (/\s/.test(q) ? ' ' : q)) // 引用符は左から順に組にする
 
 // .dev.vars に触るコマンド(見本の .dev.vars.example は除く)
 if (/\.dev\.vars(?!\.example)/.test(code)) deny(SECRET_REASON)
