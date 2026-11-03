@@ -43,6 +43,16 @@ npm run dev                      # http://localhost:8787
 
 同じ Wi-Fi のスマホからは `http://<Mac の IP アドレス>:8787` で開ける(`npm run dev` は `--ip 0.0.0.0` で起動する)。
 
+### テスト
+
+```sh
+npm run check   # 型チェックとテストをまとめて走らせる(変更したら毎回これ)
+npm test        # テストだけ
+```
+
+テストは `@cloudflare/vitest-plugin` で Workers の実行環境の中で動き、D1 もローカルの本物を使う(`.dev.vars` は要らない)。
+日付の区切り、合言葉、チェックの付け外し、毎朝のリセットで記録が残ること、過去の日の付け外しと 7 日の範囲を確かめる。
+
 ### リセットを試す
 
 - 画面から: 右上の設定 → 「今すぐリセット」
@@ -83,6 +93,8 @@ npm run deploy                         # https://kaji-board.<あなたのサブ�
 src/index.ts             API と Cron(Hono)
 public/                  画面(index.html, app.js, style.css, manifest, アイコン)
 migrations/              D1 のスキーマと初期データ
+test/                    テスト(vitest。npm run check)
+vitest.config.ts         テストの設定
 scripts/make-icons.mjs   PNG アイコンを作る(依存なし。npm run icons)
 wrangler.jsonc           Workers の設定(D1・Cron・静的アセット)
 ```
