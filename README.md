@@ -90,6 +90,7 @@ npm run deploy                         # https://kaji-board.<あなたのサブ�
 ## ファイル
 
 ```
+CLAUDE.md                作業するときに守ること(流れ・本番反映・変えてはいけないもの)
 src/index.ts             API と Cron(Hono)
 public/                  画面(index.html, app.js, style.css, manifest, アイコン)
 migrations/              D1 のスキーマと初期データ
