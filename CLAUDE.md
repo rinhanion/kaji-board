@@ -8,6 +8,7 @@
 - main に直接コミット・プッシュしない。Issue → ブランチ → PR → マージ の順に進める
   - ブランチ名: `<種類>/<Issue 番号>-<短い説明>`(例: `feat/1-past-days`、`test/3-automated-tests`)
   - PR 本文に `Closes #<Issue 番号>` を書く。マージは squash で、ブランチは消す
+  - PR では GitHub Actions の `check`(`npm run check` と同じ)が走る。通ってからマージする
   - 設計が合意できていれば、マージまで Claude が行ってよい
 - 変更したら、コミットの前に `npm run check`(型チェックとテスト)を通す
 - 動きを変えたら、`test/` にテストを足す。テストは Workers の実行環境と本物の D1 の上で動く

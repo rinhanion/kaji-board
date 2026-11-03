@@ -90,6 +90,7 @@ npm run deploy                         # https://kaji-board.<あなたのサブ�
 ## ファイル
 
 ```
+.github/workflows/       CI(PR と main で npm run check)
 CLAUDE.md                作業するときに守ること(流れ・本番反映・変えてはいけないもの)
 src/index.ts             API と Cron(Hono)
 public/                  画面(index.html, app.js, style.css, manifest, アイコン)
