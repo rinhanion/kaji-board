@@ -91,6 +91,7 @@ npm run deploy                         # https://kaji-board.<あなたのサブ�
 
 ```
 .github/workflows/       CI(PR と main で npm run check)
+.claude/                 Claude Code のフック(決まりを機械的に守らせる)
 CLAUDE.md                作業するときに守ること(流れ・本番反映・変えてはいけないもの)
 src/index.ts             API と Cron(Hono)
 public/                  画面(index.html, app.js, style.css, manifest, アイコン)
