@@ -9,6 +9,8 @@ type Bindings = {
 const AUTH_COOKIE = 'kaji_auth'
 const TITLE_MAX = 40
 const NAME_MAX = 12
+// 家族の色の数。色は 1〜COLOR_COUNT の番号で持つ(0 は消した家族・だれか)
+const COLOR_COUNT = 6
 
 // 家事の「日付」。JST の 4:00 で日が変わる(JST = UTC+9、そこから 4 時間戻す)
 export function boardDate(now = Date.now()): string {
@@ -91,25 +93,25 @@ async function ensureToday(db: D1Database) {
   if (res.meta.changes > 0) await resetBoard(db, today, prev?.value)
 }
 
-type Doer = { taskId: number; id: number; name: string }
+type Doer = { taskId: number; id: number; name: string; color: number }
 
 // 家事ごとに、やった人の一覧 doers を付ける
 function withDoers(tasks: unknown[], doers: unknown[]) {
   return (tasks as { id: number }[]).map((t) => ({
     ...t,
-    doers: (doers as Doer[]).filter((d) => d.taskId === t.id).map(({ id, name }) => ({ id, name })),
+    doers: (doers as Doer[]).filter((d) => d.taskId === t.id).map(({ id, name, color }) => ({ id, name, color })),
   }))
 }
 
 async function getBoard(db: D1Database) {
   const [members, tasks, doers] = await db.batch([
-    db.prepare('SELECT id, name FROM members ORDER BY sort, id'),
+    db.prepare('SELECT id, name, color FROM members ORDER BY sort, id'),
     db.prepare(
       `SELECT id, title, kind, sort, done_at AS doneAt, created_at AS createdAt
        FROM tasks ORDER BY kind = 'once', sort, id`,
     ),
     db.prepare(
-      `SELECT d.task_id AS taskId, m.id, m.name
+      `SELECT d.task_id AS taskId, m.id, m.name, m.color
        FROM task_doers d JOIN members m ON m.id = d.member_id ORDER BY m.sort, m.id`,
     ),
   ])
@@ -267,10 +269,10 @@ async function getHistory(db: D1Database, date: string) {
          FROM history WHERE date = ?1 ORDER BY kind = 'once', sort, id`,
       )
       .bind(date),
-    // 消された家族は、写しておいた名前で出す
+    // 消された家族は、写しておいた名前で出す(色は 0)
     db
       .prepare(
-        `SELECT d.history_id AS taskId, d.member_id AS id, COALESCE(m.name, d.name) AS name
+        `SELECT d.history_id AS taskId, d.member_id AS id, COALESCE(m.name, d.name) AS name, COALESCE(m.color, 0) AS color
          FROM history_doers d JOIN history h ON h.id = d.history_id LEFT JOIN members m ON m.id = d.member_id
          WHERE h.date = ?1 ORDER BY m.sort IS NULL, m.sort, d.member_id`,
       )
@@ -356,7 +358,7 @@ async function getStats(db: D1Database, days: number | null) {
     // やった人ごと。一緒にやった家事は、それぞれ 1 回と数える
     db
       .prepare(
-        `SELECT COALESCE(m.name, d.name) AS name, COUNT(*) AS count
+        `SELECT COALESCE(m.name, d.name) AS name, COALESCE(m.color, 0) AS color, COUNT(*) AS count
          FROM history_doers d JOIN history h ON h.id = d.history_id LEFT JOIN members m ON m.id = d.member_id
          WHERE h.done_at IS NOT NULL AND ${range}
          GROUP BY ${DOER_KEY} ORDER BY count DESC, m.sort IS NULL, m.sort, d.member_id`,
@@ -364,14 +366,14 @@ async function getStats(db: D1Database, days: number | null) {
       .bind(from, to),
     db
       .prepare(
-        `SELECT h.task_id AS taskId, COALESCE(m.name, d.name) AS name, COUNT(*) AS count
+        `SELECT h.task_id AS taskId, COALESCE(m.name, d.name) AS name, COALESCE(m.color, 0) AS color, COUNT(*) AS count
          FROM history_doers d JOIN history h ON h.id = d.history_id LEFT JOIN members m ON m.id = d.member_id
          WHERE h.kind = 'daily' AND h.done_at IS NOT NULL AND ${range}
          GROUP BY h.task_id, ${DOER_KEY} ORDER BY count DESC, m.sort IS NULL, m.sort, d.member_id`,
       )
       .bind(from, to),
   ])
-  type Row = { taskId: number; name: string; count: number }
+  type Row = { taskId: number; name: string; color: number; count: number }
   return {
     from: days ? from : ((summary.results[0] as { firstDate: string | null })?.firstDate ?? to),
     to: boardDate(Date.now() - 86400_000),
@@ -380,7 +382,7 @@ async function getStats(db: D1Database, days: number | null) {
     chores: (chores.results as { id: number; deleted: number }[]).map((t) => ({
       ...t,
       deleted: !!t.deleted,
-      doers: (choreDoers.results as Row[]).filter((d) => d.taskId === t.id).map(({ name, count }) => ({ name, count })),
+      doers: (choreDoers.results as Row[]).filter((d) => d.taskId === t.id).map(({ name, color, count }) => ({ name, color, count })),
     })),
     people: people.results,
   }
@@ -396,19 +398,36 @@ app.post('/api/members', async (c) => {
   const body = await c.req.json<{ name?: string }>().catch(() => ({}) as { name?: string })
   const name = cleanText(body.name, NAME_MAX)
   if (!name) return c.json({ error: `1〜${NAME_MAX}文字で入力してください` }, 400)
+  // 色は、いちばん使われていない色(同じなら若い番号)
+  const used = await c.env.DB.prepare('SELECT color, COUNT(*) AS n FROM members GROUP BY color').all<{ color: number; n: number }>()
+  const count = (k: number) => used.results.find((r) => r.color === k)?.n ?? 0
+  let color = 1
+  for (let k = 2; k <= COLOR_COUNT; k++) if (count(k) < count(color)) color = k
   const row = await c.env.DB.prepare(
-    'INSERT INTO members (name, sort) VALUES (?1, (SELECT COALESCE(MAX(sort), 0) + 1 FROM members)) RETURNING id',
+    'INSERT INTO members (name, sort, color) VALUES (?1, (SELECT COALESCE(MAX(sort), 0) + 1 FROM members), ?2) RETURNING id',
   )
-    .bind(name)
+    .bind(name, color)
     .first<{ id: number }>()
   return c.json({ ...(await getBoard(c.env.DB)), createdId: row?.id })
 })
 
+// 名前と色のどちらか(または両方)を変える
 app.patch('/api/members/:id', async (c) => {
-  const body = await c.req.json<{ name?: string }>().catch(() => ({}) as { name?: string })
-  const name = cleanText(body.name, NAME_MAX)
-  if (!name) return c.json({ error: `1〜${NAME_MAX}文字で入力してください` }, 400)
-  await c.env.DB.prepare('UPDATE members SET name = ?1 WHERE id = ?2').bind(name, Number(c.req.param('id'))).run()
+  const body = await c.req.json<{ name?: string; color?: unknown }>().catch(() => ({}) as { name?: string; color?: unknown })
+  const id = Number(c.req.param('id'))
+  const updates: D1PreparedStatement[] = []
+  if (body.name !== undefined) {
+    const name = cleanText(body.name, NAME_MAX)
+    if (!name) return c.json({ error: `1〜${NAME_MAX}文字で入力してください` }, 400)
+    updates.push(c.env.DB.prepare('UPDATE members SET name = ?1 WHERE id = ?2').bind(name, id))
+  }
+  if (body.color !== undefined) {
+    const color = Number(body.color)
+    if (!Number.isInteger(color) || color < 1 || color > COLOR_COUNT) return c.json({ error: `色は 1〜${COLOR_COUNT} です` }, 400)
+    updates.push(c.env.DB.prepare('UPDATE members SET color = ?1 WHERE id = ?2').bind(color, id))
+  }
+  if (!updates.length) return c.json({ error: '名前か色を指定してください' }, 400)
+  await c.env.DB.batch(updates)
   return c.json(await getBoard(c.env.DB))
 })
 
