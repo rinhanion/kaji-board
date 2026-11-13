@@ -314,6 +314,84 @@ app.post('/api/history/:id/uncheck', async (c) => {
   return c.json(await getHistory(db, date))
 })
 
+// ---------- 集計 ----------
+
+// 集計する期間。数字は昨日までの日数、all は記録のある最初の日から
+const STATS_RANGES: Record<string, number | null> = { '7': 7, '30': 30, all: null }
+
+// 消された家族の写し(member_id 0)は、名前ごとに別の人として数える
+const DOER_KEY = 'd.member_id, CASE WHEN d.member_id = 0 THEN d.name END'
+
+// history を期間で集計する。今日の分はまだ history に無いので入らない
+async function getStats(db: D1Database, days: number | null) {
+  const to = boardDate() // この日は含めない
+  const from = days ? boardDate(Date.now() - days * 86400_000) : '0000-01-01'
+  const range = 'h.date >= ?1 AND h.date < ?2'
+  const noDoer = 'h.done_at IS NOT NULL AND NOT EXISTS (SELECT 1 FROM history_doers x WHERE x.history_id = h.id)'
+  const [summary, perDay, chores, people, choreDoers] = await db.batch([
+    db
+      .prepare(
+        `SELECT COUNT(DISTINCT h.date) AS days, COUNT(*) AS total, COUNT(h.done_at) AS done,
+           COALESCE(SUM(h.kind = 'once'), 0) AS onceTotal,
+           COALESCE(SUM(h.kind = 'once' AND h.done_at IS NOT NULL), 0) AS onceDone,
+           COALESCE(SUM(${noDoer}), 0) AS unknown,
+           (SELECT MIN(date) FROM history) AS firstDate
+         FROM history h WHERE ${range}`,
+      )
+      .bind(from, to),
+    db
+      .prepare(`SELECT h.date, COUNT(*) AS total, COUNT(h.done_at) AS done FROM history h WHERE ${range} GROUP BY h.date ORDER BY h.date`)
+      .bind(from, to),
+    // 毎日の家事ごと。名前は今の名前、消されていれば最後に記録した名前
+    db
+      .prepare(
+        `SELECT h.task_id AS id,
+           COALESCE(t.title, (SELECT y.title FROM history y WHERE y.task_id = h.task_id ORDER BY y.date DESC LIMIT 1)) AS title,
+           t.id IS NULL AS deleted, COUNT(*) AS total, COUNT(h.done_at) AS done, COALESCE(SUM(${noDoer}), 0) AS unknown
+         FROM history h LEFT JOIN tasks t ON t.id = h.task_id
+         WHERE h.kind = 'daily' AND ${range}
+         GROUP BY h.task_id ORDER BY t.id IS NULL, t.sort, h.task_id`,
+      )
+      .bind(from, to),
+    // やった人ごと。一緒にやった家事は、それぞれ 1 回と数える
+    db
+      .prepare(
+        `SELECT COALESCE(m.name, d.name) AS name, COUNT(*) AS count
+         FROM history_doers d JOIN history h ON h.id = d.history_id LEFT JOIN members m ON m.id = d.member_id
+         WHERE h.done_at IS NOT NULL AND ${range}
+         GROUP BY ${DOER_KEY} ORDER BY count DESC, m.sort IS NULL, m.sort, d.member_id`,
+      )
+      .bind(from, to),
+    db
+      .prepare(
+        `SELECT h.task_id AS taskId, COALESCE(m.name, d.name) AS name, COUNT(*) AS count
+         FROM history_doers d JOIN history h ON h.id = d.history_id LEFT JOIN members m ON m.id = d.member_id
+         WHERE h.kind = 'daily' AND h.done_at IS NOT NULL AND ${range}
+         GROUP BY h.task_id, ${DOER_KEY} ORDER BY count DESC, m.sort IS NULL, m.sort, d.member_id`,
+      )
+      .bind(from, to),
+  ])
+  type Row = { taskId: number; name: string; count: number }
+  return {
+    from: days ? from : ((summary.results[0] as { firstDate: string | null })?.firstDate ?? to),
+    to: boardDate(Date.now() - 86400_000),
+    summary: summary.results[0],
+    days: perDay.results,
+    chores: (chores.results as { id: number; deleted: number }[]).map((t) => ({
+      ...t,
+      deleted: !!t.deleted,
+      doers: (choreDoers.results as Row[]).filter((d) => d.taskId === t.id).map(({ name, count }) => ({ name, count })),
+    })),
+    people: people.results,
+  }
+}
+
+app.get('/api/stats', async (c) => {
+  const range = c.req.query('range') ?? '30'
+  if (!(range in STATS_RANGES)) return c.json({ error: 'range は 7・30・all のどれかです' }, 400)
+  return c.json({ range, ...(await getStats(c.env.DB, STATS_RANGES[range])) })
+})
+
 app.post('/api/members', async (c) => {
   const body = await c.req.json<{ name?: string }>().catch(() => ({}) as { name?: string })
   const name = cleanText(body.name, NAME_MAX)
