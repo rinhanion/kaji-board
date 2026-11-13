@@ -1,0 +1,76 @@
+<!doctype html>
+<html lang="ja">
+<head>
+  <meta charset="utf-8">
+  <meta name="viewport" content="width=device-width, initial-scale=1, viewport-fit=cover">
+  <title>家事の集計</title>
+  <meta name="theme-color" content="#F8FAFD" media="(prefers-color-scheme: light)">
+  <meta name="theme-color" content="#13171E" media="(prefers-color-scheme: dark)">
+  <meta name="apple-mobile-web-app-capable" content="yes">
+  <meta name="mobile-web-app-capable" content="yes">
+  <link rel="manifest" href="/manifest.webmanifest">
+  <link rel="icon" href="/icon.svg" type="image/svg+xml">
+  <link rel="apple-touch-icon" href="/apple-touch-icon.png">
+  <link rel="preconnect" href="https://fonts.googleapis.com">
+  <link rel="preconnect" href="https://fonts.gstatic.com" crossorigin>
+  <link rel="stylesheet" href="https://fonts.googleapis.com/css2?family=IBM+Plex+Sans+JP:wght@400;500;700&display=swap">
+  <link rel="stylesheet" href="/style.css">
+</head>
+<body>
+  <main class="screen stats">
+    <header class="stats-head">
+      <a href="/" class="back">
+        <svg viewBox="0 0 24 24" aria-hidden="true"><path d="M15 5l-7 7 7 7"/></svg>
+        ボード
+      </a>
+      <h1 class="title">家事の集計</h1>
+      <p id="span" class="date"></p>
+    </header>
+
+    <!-- 期間 -->
+    <div class="seg" role="radiogroup" aria-label="期間">
+      <button type="button" data-range="7" role="radio">7日</button>
+      <button type="button" data-range="30" role="radio">30日</button>
+      <button type="button" data-range="all" role="radio">ぜんぶ</button>
+    </div>
+
+    <p id="loading" class="hint">読み込み中…</p>
+    <p id="error" class="offline" hidden></p>
+    <p id="empty" class="hint no-record" hidden>この期間の記録はまだありません。<br>毎朝 4時に、前の日の記録がたまります</p>
+
+    <div id="content" hidden>
+      <section class="stat-tiles">
+        <div class="tile">
+          <p class="tile-label">完了</p>
+          <p class="tile-num"><span id="rate"></span><small>%</small></p>
+          <p id="rate-sub" class="tile-sub"></p>
+        </div>
+        <div class="tile">
+          <p class="tile-label">記録した日</p>
+          <p class="tile-num"><span id="days"></span><small>日</small></p>
+          <p id="once-sub" class="tile-sub"></p>
+        </div>
+      </section>
+
+      <section class="stat-sec">
+        <h2 id="trend-title">日ごとの完了</h2>
+        <div id="trend" class="trend"></div>
+        <p id="trend-note" class="trend-note"></p>
+      </section>
+
+      <section class="stat-sec">
+        <h2>だれが やった?</h2>
+        <ul id="people" class="hbars"></ul>
+        <p class="note">一緒にやった家事は、それぞれ 1回と数えます</p>
+      </section>
+
+      <section class="stat-sec">
+        <h2>毎日の家事</h2>
+        <ul id="chores" class="chores"></ul>
+      </section>
+    </div>
+  </main>
+
+  <script src="/stats.js"></script>
+</body>
+</html>
