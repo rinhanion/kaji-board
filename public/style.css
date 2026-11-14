@@ -456,6 +456,72 @@ dialog h3 { font: var(--text-subheading); color: var(--cobalt-700); margin: 0 0 
 .chore-rate { font: var(--text-subheading); font-variant-numeric: tabular-nums; }
 .chore-sub { margin: 6px 0 0; color: var(--cobalt-700); font: var(--text-caption); }
 
+/* --- ポイントと「ありがとう」 --- */
+/* 自分の使えるポイント(進み具合の下。タップで「ごほうび」へ) */
+.points-row {
+  display: flex; align-items: center; gap: var(--space-2);
+  min-height: 48px; margin-top: var(--space-3);
+  padding: 0 var(--space-3) 0 var(--space-4);
+  border-radius: var(--radius-pill);
+  background: var(--cobalt-50); color: var(--cobalt-700);
+  font-weight: 500; text-decoration: none;
+  transition: transform 400ms var(--ease-bounce);
+}
+.points-row:active { transform: scale(.97); transition-duration: 80ms; }
+.points-text { flex: 1; min-width: 0; }
+.points-text .num { font-weight: 700; font-variant-numeric: tabular-nums; color: var(--cobalt-900); }
+.points-row svg { width: 18px; height: 18px; flex: none; fill: none; stroke: currentColor; stroke-width: 2.4; stroke-linecap: round; stroke-linejoin: round; }
+.past .points-row { background: var(--paper-raised); }
+
+/* ありがとう(完了したカードの右。やった人以外に出る) */
+.item.has-thanks .card { padding-right: 132px; }
+.thanks {
+  position: absolute; top: 50%; right: var(--space-3); translate: 0 -50%;
+  min-height: 44px; padding: 0 var(--space-4);
+  border: 1.5px solid var(--cobalt-500); border-radius: var(--radius-pill);
+  background: var(--paper-raised); color: var(--cobalt-500);
+  font-weight: 700; white-space: nowrap;
+  transition: transform 400ms var(--ease-bounce), background-color 150ms, color 150ms;
+}
+.thanks:active { transform: scale(.9); transition-duration: 80ms; }
+.thanks[aria-pressed="true"] { background: var(--cobalt-500); color: var(--on-cobalt); }
+.thanks.pop { animation: pop 450ms var(--ease-bounce); }
+/* 今日だけのタスクは右に × があるので、その左に置く */
+.item.has-del .thanks { right: 56px; }
+.item.has-del.has-thanks .card { padding-right: 176px; }
+.card-thanks { display: block; color: var(--cobalt-700); font: var(--text-caption); font-weight: 500; }
+
+/* 設定: 1 ポイントの円 */
+.yen-row { display: flex; align-items: center; gap: var(--space-2); margin-bottom: var(--space-3); font-weight: 500; }
+.yen-row input { width: 6.5em; text-align: right; font-variant-numeric: tabular-nums; }
+
+/* ごほうびのページ */
+.reward-people { list-style: none; margin: 0; padding: 0; display: flex; flex-direction: column; gap: var(--space-3); }
+.reward-person { padding: var(--space-4); border: 1px solid var(--cobalt-200); border-radius: var(--radius-lg); background: var(--paper-raised); }
+.reward-head { display: flex; justify-content: space-between; align-items: baseline; gap: var(--space-3); }
+.reward-name { font: var(--text-subheading); font-weight: 700; overflow: hidden; text-overflow: ellipsis; white-space: nowrap; }
+.reward-total { flex: none; font: var(--text-display); font-variant-numeric: tabular-nums; }
+.reward-total small { font: var(--text-body); font-weight: 500; margin-left: 2px; }
+.reward-yen { display: flex; justify-content: space-between; align-items: center; gap: var(--space-3); margin: 2px 0 0; color: var(--cobalt-700); font-weight: 500; }
+.reward-yen .btn { min-height: 44px; padding: 0 var(--space-6); }
+.reward-yen .btn:disabled, #use-ok:disabled { opacity: .4; }
+.reward-sub { margin: var(--space-2) 0 0; color: var(--cobalt-700); font: var(--text-caption); }
+
+.uses { list-style: none; margin: 0; padding: 0; display: flex; flex-direction: column; gap: var(--space-2); }
+.use { display: flex; align-items: center; gap: var(--space-3); min-height: 64px; padding: var(--space-3) var(--space-3) var(--space-3) var(--space-4); border: 1px solid var(--cobalt-200); border-radius: var(--radius-lg); background: var(--paper-raised); }
+.use-body { flex: 1; min-width: 0; }
+.use-main { display: block; font-weight: 700; }
+.use-meta { display: block; color: var(--cobalt-700); font: var(--text-caption); }
+.use .btn { min-height: 40px; padding: 0 var(--space-4); font: var(--text-caption); font-weight: 700; }
+.use.canceled { border-style: dashed; background: transparent; }
+.use.canceled .use-main { color: var(--cobalt-700); font-weight: 500; text-decoration: line-through; opacity: .7; }
+
+/* ポイントを使うシート */
+.use-input { display: flex; align-items: center; gap: var(--space-2); }
+.use-input input { flex: 1; min-width: 0; font: var(--text-heading); font-weight: 700; font-variant-numeric: tabular-nums; }
+.use-input .btn { min-height: 56px; }
+.use-yen { margin: var(--space-2) 0 0; font: var(--text-subheading); font-weight: 700; font-variant-numeric: tabular-nums; }
+
 /* 弾みを切り、色の変化だけにする */
 @media (prefers-reduced-motion: reduce) {
   *, *::before, *::after { animation: none !important; transition-property: background-color, color, opacity !important; }

@@ -13,6 +13,7 @@ let version = 0 // 操作のたびに増やす。古いポーリング結果で�
 let pending = 0
 let pendingCheckId = null // 名前を選ぶ前にタップした家事
 let popId = null // 直前にチェックした家事(印を弾ませる)
+let thanksPopId = null // 直前に「ありがとう」を送った家事(ボタンを弾ませる)
 let whoTaskId = null // 「だれがやった?」で選んでいる家事
 let whoPicked = new Set() // 「だれがやった?」で選ばれている人の id
 let pastDate = null // 見ている過去の日。null なら今日
@@ -86,6 +87,10 @@ function daysBetween(from, to) {
 function dayEnd(iso) {
   return Date.parse(shiftDate(iso, 1)) + (4 - 9) * 3600_000
 }
+// ポイントを円にして出す(1,234円ぶん)。マイナスのときは 0 円
+function formatYen(points) {
+  return `${(Math.max(points, 0) * (board?.yenPerPoint ?? 10)).toLocaleString('ja-JP')}円ぶん`
+}
 function formatTime(ms) {
   const d = new Date(ms)
   return `${d.getHours()}:${String(d.getMinutes()).padStart(2, '0')}`
@@ -154,6 +159,8 @@ async function mutate(optimistic, method, path, body) {
     const data = await api(method, path, body)
     setOffline(false)
     if (v === version) apply(data)
+    // 過去の日の操作ではボード(ポイント)が返ってこないので、読み直す
+    if (data.past) api('GET', '/api/board').then((b) => v === version && apply(b), () => {})
     return data
   } catch (e) {
     if (e instanceof Unauthorized) return null
@@ -181,7 +188,7 @@ function apply(data) {
     }
     return
   }
-  board = { date: data.date, members: data.members, tasks: data.tasks }
+  board = { date: data.date, members: data.members, tasks: data.tasks, points: data.points ?? [], yenPerPoint: data.yenPerPoint ?? 10 }
   if (getMe() && !meMember()) setMe(null) // 自分の名前が消されていたら選び直し
   render()
 }
@@ -228,6 +235,12 @@ function render() {
   chip.replaceChildren(...(me ? [dot(me.color), me.name] : ['私は…']))
   chip.classList.toggle('empty', !me)
 
+  // 自分の使えるポイント。名前を選んでいない端末では、ごほうびへの入口だけ
+  const mine = me && board.points.find((p) => p.id === me.id)
+  $('#points-text').replaceChildren(
+    ...(mine ? [dot(me.color), h('span', { class: 'num' }, String(mine.balance)), ` ポイント(${formatYen(mine.balance)})`] : ['ごほうびを見る']),
+  )
+
   renderList()
   if ($('#me-dialog').open) renderMeList()
 }
@@ -260,6 +273,10 @@ function taskItem(t) {
   const late = done && pastDate && t.doneAt >= dayEnd(pastDate)
   const who = t.doers.length ? t.doers.flatMap((d, i) => [i ? '・' : '', dot(d.color), d.name]) : ['だれか']
   const meta = done ? [...who, ` · ${late ? 'あとから記録' : formatTime(t.doneAt)}`] : null
+  // 「ありがとう」は、だれかが完了にした家事に、やった人以外が送れる
+  const myId = getMe()
+  const canThank = done && t.doers.length > 0 && !t.doers.some((d) => d.id === myId)
+  const thanked = t.thanks.some((d) => d.id === myId)
   const card = h(
     'button',
     {
@@ -275,6 +292,9 @@ function taskItem(t) {
       t.kind === 'once' ? h('span', { class: 'tag' }, '今日だけ') : null,
       h('span', { class: 'card-title' }, t.title),
       meta ? h('span', { class: 'card-meta' }, meta) : null,
+      done && t.thanks.length
+        ? h('span', { class: 'card-thanks' }, 'ありがとう ', t.thanks.flatMap((d, i) => [i ? '・' : '', dot(d.color), d.name]))
+        : null,
     ),
   )
   onLongPress(card, () => openWho(t.id))
@@ -282,7 +302,20 @@ function taskItem(t) {
     t.kind === 'once' && !pastDate
       ? h('button', { type: 'button', class: 'del', 'aria-label': `${t.title}を削除`, onclick: () => removeOnce(t) }, '×')
       : null
-  return h('li', { class: `item${del ? ' has-del' : ''}`, 'data-id': String(t.id) }, card, del)
+  const thanks = canThank
+    ? h(
+        'button',
+        {
+          type: 'button',
+          class: `thanks${thanked && t.id === thanksPopId ? ' pop' : ''}`,
+          'aria-pressed': thanked ? 'true' : 'false',
+          'aria-label': `${t.title}に ありがとう`,
+          onclick: () => toggleThanks(t, !thanked),
+        },
+        'ありがとう',
+      )
+    : null
+  return h('li', { class: `item${del ? ' has-del' : ''}${thanks ? ' has-thanks' : ''}`, 'data-id': String(t.id) }, card, thanks, del)
 }
 
 // ---------- 操作 ----------
@@ -319,6 +352,28 @@ function doCheck(id, doers) {
   showToast(`「${t?.title ?? ''}」完了`, () => doUncheck(id))
 }
 
+// 「ありがとう」を付ける・外す
+function toggleThanks(t, on) {
+  const me = meMember()
+  if (!me) {
+    openMeDialog()
+    return
+  }
+  thanksPopId = on ? t.id : null
+  if (on) setTimeout(() => thanksPopId === t.id && (thanksPopId = null), 600)
+  mutate(
+    (b) => {
+      const x = b.tasks.find((y) => y.id === t.id)
+      if (!x) return
+      x.thanks = x.thanks.filter((d) => d.id !== me.id)
+      if (on) x.thanks.push({ id: me.id, name: me.name, color: me.color })
+    },
+    'POST',
+    `${taskBase()}/${t.id}/thanks`,
+    { memberId: me.id, on },
+  )
+}
+
 function uncheck(t) {
   const prev = t.doers
   doUncheck(t.id)
@@ -329,7 +384,7 @@ function doUncheck(id) {
   mutate(
     (b) => {
       const x = b.tasks.find((y) => y.id === id)
-      if (x) Object.assign(x, { doneAt: null, doers: [] })
+      if (x) Object.assign(x, { doneAt: null, doers: [], thanks: [] })
     },
     'POST',
     `${taskBase()}/${id}/uncheck`,
@@ -346,7 +401,8 @@ function doAssign(id, doers, { toast = true } = {}) {
   mutate(
     (b) => {
       const x = b.tasks.find((y) => y.id === id)
-      if (x) Object.assign(x, { doneAt: x.doneAt ?? now, doers })
+      // やった人になった人の「ありがとう」は消える(サーバーと同じ)
+      if (x) Object.assign(x, { doneAt: x.doneAt ?? now, doers, thanks: x.thanks.filter((d) => !doers.some((y) => y.id === d.id)) })
     },
     'POST',
     `${taskBase()}/${id}/check`,
@@ -656,7 +712,18 @@ function renderEdit() {
         )
       : [h('li', { class: 'hint' }, '名前は、右上の「私は…」から追加できます')]),
   )
+  $('#yen-input').value = String(board.yenPerPoint)
 }
+
+$('#yen-input').addEventListener('change', (e) => {
+  const yen = Number(e.target.value)
+  if (!Number.isInteger(yen) || yen < 1 || yen > 1000) {
+    e.target.value = String(board.yenPerPoint)
+    return
+  }
+  if (yen !== board.yenPerPoint) editMutate(null, 'PATCH', '/api/settings', { yenPerPoint: yen })
+})
+$('#yen-input').addEventListener('keydown', (e) => e.key === 'Enter' && e.target.blur())
 
 async function editMutate(...args) {
   await mutate(...args)
