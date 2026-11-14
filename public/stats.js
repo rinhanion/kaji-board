@@ -187,6 +187,22 @@ function renderPeople(data) {
 
 // ---------- 毎日の家事 ----------
 
+// ゲージの長さは完了の割合。その長さを、やった人ごとの回数の割合で分けて、人の色で塗る
+// (一緒にやった日は、それぞれ 1 回と数える)
+function choreGauge(t) {
+  const parts = t.doers.map((d) => ({ color: d.color || 0, count: d.count }))
+  if (t.unknown) parts.push({ color: 0, count: t.unknown })
+  const sum = parts.reduce((a, p) => a + p.count, 0)
+  const width = (t.done / (t.total || 1)) * 100
+  return h(
+    'span',
+    { class: 'hbar-track stack' },
+    sum
+      ? parts.map((p) => h('span', { class: 'hbar-fill', style: `width: ${(width * p.count) / sum}%; --c: var(--who-${p.color})` }))
+      : h('span', { class: 'hbar-fill', style: `width: ${width}%` }),
+  )
+}
+
 function renderChores(data) {
   $('#chores').replaceChildren(
     ...data.chores.map((t) => {
@@ -201,7 +217,7 @@ function renderChores(data) {
           h('span', { class: 'chore-title' }, t.title, t.deleted ? h('span', { class: 'tag' }, '今はない') : null),
           h('span', { class: 'chore-rate' }, `${pct(t.done, t.total)}%`),
         ),
-        h('span', { class: 'hbar-track' }, h('span', { class: 'hbar-fill', style: `width: ${pct(t.done, t.total)}%` })),
+        choreGauge(t),
         h('p', { class: 'chore-sub' }, `${t.total}日のうち ${t.done}日`, who.length ? [' ・ ', ...who.flatMap((w, i) => (i ? [' / ', w] : [w]))] : ''),
       )
     }),
