@@ -11,6 +11,9 @@ const TITLE_MAX = 40
 const NAME_MAX = 12
 // 家族の色の数。色は 1〜COLOR_COUNT の番号で持つ(0 は消した家族・だれか)
 const COLOR_COUNT = 6
+// 1 ポイントが何円か。設定で変えられる(meta の yen_per_point)
+const YEN_DEFAULT = 10
+const YEN_MAX = 1000
 
 // 家事の「日付」。JST の 4:00 で日が変わる(JST = UTC+9、そこから 4 時間戻す)
 export function boardDate(now = Date.now()): string {
@@ -65,11 +68,20 @@ async function resetBoard(db: D1Database, date: string, archiveDate?: string) {
              FROM task_doers d JOIN members m ON m.id = d.member_id JOIN history h ON h.date = ?1 AND h.task_id = d.task_id`,
           )
           .bind(archiveDate),
+        db.prepare('DELETE FROM history_thanks WHERE history_id IN (SELECT id FROM history WHERE date = ?1)').bind(archiveDate),
+        db
+          .prepare(
+            `INSERT INTO history_thanks (history_id, member_id, name)
+             SELECT h.id, m.id, m.name
+             FROM task_thanks d JOIN members m ON m.id = d.member_id JOIN history h ON h.date = ?1 AND h.task_id = d.task_id`,
+          )
+          .bind(archiveDate),
       ]
     : []
   await db.batch([
     ...archive,
     db.prepare('DELETE FROM task_doers'),
+    db.prepare('DELETE FROM task_thanks'),
     db.prepare("UPDATE tasks SET done_at = NULL WHERE kind = 'daily'"),
     db.prepare("DELETE FROM tasks WHERE kind = 'once'"),
     db
@@ -95,16 +107,49 @@ async function ensureToday(db: D1Database) {
 
 type Doer = { taskId: number; id: number; name: string; color: number }
 
-// 家事ごとに、やった人の一覧 doers を付ける
-function withDoers(tasks: unknown[], doers: unknown[]) {
-  return (tasks as { id: number }[]).map((t) => ({
-    ...t,
-    doers: (doers as Doer[]).filter((d) => d.taskId === t.id).map(({ id, name, color }) => ({ id, name, color })),
-  }))
+// 家事ごとに、やった人の一覧 doers と、「ありがとう」を送った人の一覧 thanks を付ける
+function withDoers(tasks: unknown[], doers: unknown[], thanks: unknown[]) {
+  const of = (rows: unknown[], taskId: number) =>
+    (rows as Doer[]).filter((d) => d.taskId === taskId).map(({ id, name, color }) => ({ id, name, color }))
+  return (tasks as { id: number }[]).map((t) => ({ ...t, doers: of(doers, t.id), thanks: of(thanks, t.id) }))
+}
+
+// ---------- ポイント ----------
+
+// 家事を 1 回やると +1(一緒にやったら、それぞれ +1)、「ありがとう」を 1 つもらうと +1。
+// 記録から毎回数える(今日の分も入れる)。数えるのは今いる家族だけ
+async function getPoints(db: D1Database) {
+  // ?1 以降の日付だけ数える(今月ためた分に使う)。今日の分はいつも入れる
+  const chores = (from: string) =>
+    `(SELECT COUNT(*) FROM history_doers d JOIN history h ON h.id = d.history_id
+       WHERE d.member_id = m.id AND h.done_at IS NOT NULL AND h.date >= ${from})
+     + (SELECT COUNT(*) FROM task_doers d JOIN tasks t ON t.id = d.task_id WHERE d.member_id = m.id AND t.done_at IS NOT NULL)`
+  const thanks = (from: string) =>
+    `(SELECT COUNT(*) FROM history_thanks x JOIN history_doers d ON d.history_id = x.history_id JOIN history h ON h.id = x.history_id
+       WHERE d.member_id = m.id AND h.done_at IS NOT NULL AND h.date >= ${from})
+     + (SELECT COUNT(*) FROM task_thanks x JOIN task_doers d ON d.task_id = x.task_id JOIN tasks t ON t.id = x.task_id
+       WHERE d.member_id = m.id AND t.done_at IS NOT NULL)`
+  const [rows, yen] = await db.batch([
+    db
+      .prepare(
+        `SELECT m.id, m.name, m.color, ${chores("''")} AS chores, ${thanks("''")} AS thanks,
+           ${chores('?1')} + ${thanks('?1')} AS month,
+           (SELECT COALESCE(SUM(u.points), 0) FROM point_uses u WHERE u.member_id = m.id AND u.canceled_at IS NULL) AS used
+         FROM members m ORDER BY m.sort, m.id`,
+      )
+      .bind(`${boardDate().slice(0, 7)}-01`),
+    db.prepare("SELECT value FROM meta WHERE key = 'yen_per_point'"),
+  ])
+  type Row = { id: number; name: string; color: number; chores: number; thanks: number; month: number; used: number }
+  return {
+    yenPerPoint: Number((yen.results[0] as { value: string } | undefined)?.value) || YEN_DEFAULT,
+    // balance は使えるポイント。使ったあとにチェックを外すと、0 より小さくなることもある
+    points: (rows.results as Row[]).map((r) => ({ ...r, balance: r.chores + r.thanks - r.used })),
+  }
 }
 
 async function getBoard(db: D1Database) {
-  const [members, tasks, doers] = await db.batch([
+  const [members, tasks, doers, thanks] = await db.batch([
     db.prepare('SELECT id, name, color FROM members ORDER BY sort, id'),
     db.prepare(
       `SELECT id, title, kind, sort, done_at AS doneAt, created_at AS createdAt
@@ -114,8 +159,17 @@ async function getBoard(db: D1Database) {
       `SELECT d.task_id AS taskId, m.id, m.name, m.color
        FROM task_doers d JOIN members m ON m.id = d.member_id ORDER BY m.sort, m.id`,
     ),
+    db.prepare(
+      `SELECT d.task_id AS taskId, m.id, m.name, m.color
+       FROM task_thanks d JOIN members m ON m.id = d.member_id ORDER BY m.sort, m.id`,
+    ),
   ])
-  return { date: boardDate(), members: members.results, tasks: withDoers(tasks.results, doers.results) }
+  return {
+    date: boardDate(),
+    members: members.results,
+    tasks: withDoers(tasks.results, doers.results, thanks.results),
+    ...(await getPoints(db)),
+  }
 }
 
 // やった人の id。古い画面が送ってくる memberId(1 人)も受ける
@@ -130,6 +184,7 @@ async function checkTask(db: D1Database, target: 'tasks' | 'history', id: number
   const now = Date.now()
   const [doers, key, cols, vals] =
     target === 'tasks' ? ['task_doers', 'task_id', 'member_id', 'm.id'] : ['history_doers', 'history_id', 'member_id, name', 'm.id, m.name']
+  const thanks = target === 'tasks' ? 'task_thanks' : 'history_thanks'
   const inserts = memberIds.map((m) =>
     db
       .prepare(
@@ -143,12 +198,52 @@ async function checkTask(db: D1Database, target: 'tasks' | 'history', id: number
       db.prepare(`UPDATE ${target} SET done_at = COALESCE(done_at, ?2) WHERE id = ?1`).bind(id, now),
       db.prepare(`DELETE FROM ${doers} WHERE ${key} = ?1`).bind(id),
       ...inserts,
+      // やった人になった人の「ありがとう」は消す。やった人がいなくなったら、ぜんぶ消す
+      db
+        .prepare(
+          `DELETE FROM ${thanks} WHERE ${key} = ?1 AND (
+             member_id IN (SELECT member_id FROM ${doers} WHERE ${key} = ?1)
+             OR NOT EXISTS (SELECT 1 FROM ${doers} WHERE ${key} = ?1))`,
+        )
+        .bind(id),
     ])
     return
   }
   // 完了にできたとき(先にだれも完了にしていなかったとき)だけ、やった人を付ける
   const done = await db.prepare(`UPDATE ${target} SET done_at = ?2 WHERE id = ?1 AND done_at IS NULL RETURNING id`).bind(id, now).first()
   if (done && inserts.length) await db.batch(inserts)
+}
+
+// 「ありがとう」を付ける・外す。付けられるのは、完了していて、やった人がいて、自分がやっていない家事だけ。
+// 付けられないときは理由を返す
+async function setThanks(db: D1Database, target: 'tasks' | 'history', id: number, memberId: number, on: boolean): Promise<string | null> {
+  const [doers, thanks, key, cols, vals] =
+    target === 'tasks'
+      ? ['task_doers', 'task_thanks', 'task_id', 'member_id', 'm.id']
+      : ['history_doers', 'history_thanks', 'history_id', 'member_id, name', 'm.id, m.name']
+  if (!on) {
+    await db.prepare(`DELETE FROM ${thanks} WHERE ${key} = ?1 AND member_id = ?2`).bind(id, memberId).run()
+    return null
+  }
+  const row = await db
+    .prepare(
+      `SELECT t.done_at AS doneAt,
+         EXISTS (SELECT 1 FROM members m WHERE m.id = ?2) AS member,
+         (SELECT COUNT(*) FROM ${doers} d WHERE d.${key} = t.id) AS doers,
+         EXISTS (SELECT 1 FROM ${doers} d WHERE d.${key} = t.id AND d.member_id = ?2) AS mine
+       FROM ${target} t WHERE t.id = ?1`,
+    )
+    .bind(id, memberId)
+    .first<{ doneAt: number | null; member: number; doers: number; mine: number }>()
+  if (!row) return '家事が見つかりません'
+  if (!row.member) return '名前を選んでください'
+  if (!row.doneAt || !row.doers) return '「ありがとう」は、だれかが完了にした家事に送れます'
+  if (row.mine) return '自分がやった家事には送れません'
+  await db
+    .prepare(`INSERT OR IGNORE INTO ${thanks} (${key}, ${cols}) SELECT ?1, ${vals} FROM members m WHERE m.id = ?2`)
+    .bind(id, memberId)
+    .run()
+  return null
 }
 
 function cleanText(v: unknown, max: number): string | null {
@@ -208,7 +303,19 @@ app.post('/api/tasks/:id/uncheck', async (c) => {
   await db.batch([
     db.prepare('UPDATE tasks SET done_at = NULL WHERE id = ?1').bind(id),
     db.prepare('DELETE FROM task_doers WHERE task_id = ?1').bind(id),
+    db.prepare('DELETE FROM task_thanks WHERE task_id = ?1').bind(id),
   ])
+  return c.json(await getBoard(db))
+})
+
+type ThanksBody = { memberId?: unknown; on?: unknown }
+
+// 完了した家事に「ありがとう」を付ける(on: false で外す)
+app.post('/api/tasks/:id/thanks', async (c) => {
+  const body = await c.req.json<ThanksBody>().catch(() => ({}) as ThanksBody)
+  const db = c.env.DB
+  const error = await setThanks(db, 'tasks', Number(c.req.param('id')), Number(body.memberId), body.on !== false)
+  if (error) return c.json({ error }, 400)
   return c.json(await getBoard(db))
 })
 
@@ -262,7 +369,15 @@ function pastDateOk(date: string): boolean {
 }
 
 async function getHistory(db: D1Database, date: string) {
-  const [tasks, doers] = await db.batch([
+  const people = (table: string) =>
+    db
+      .prepare(
+        `SELECT d.history_id AS taskId, d.member_id AS id, COALESCE(m.name, d.name) AS name, COALESCE(m.color, 0) AS color
+         FROM ${table} d JOIN history h ON h.id = d.history_id LEFT JOIN members m ON m.id = d.member_id
+         WHERE h.date = ?1 ORDER BY m.sort IS NULL, m.sort, d.member_id`,
+      )
+      .bind(date)
+  const [tasks, doers, thanks] = await db.batch([
     db
       .prepare(
         `SELECT id, title, kind, sort, done_at AS doneAt, created_at AS createdAt
@@ -270,15 +385,10 @@ async function getHistory(db: D1Database, date: string) {
       )
       .bind(date),
     // 消された家族は、写しておいた名前で出す(色は 0)
-    db
-      .prepare(
-        `SELECT d.history_id AS taskId, d.member_id AS id, COALESCE(m.name, d.name) AS name, COALESCE(m.color, 0) AS color
-         FROM history_doers d JOIN history h ON h.id = d.history_id LEFT JOIN members m ON m.id = d.member_id
-         WHERE h.date = ?1 ORDER BY m.sort IS NULL, m.sort, d.member_id`,
-      )
-      .bind(date),
+    people('history_doers'),
+    people('history_thanks'),
   ])
-  return { past: { date, tasks: withDoers(tasks.results, doers.results) } }
+  return { past: { date, tasks: withDoers(tasks.results, doers.results, thanks.results) } }
 }
 
 // 書き換える記録の日付。見られない日の記録なら null
@@ -312,7 +422,19 @@ app.post('/api/history/:id/uncheck', async (c) => {
   await db.batch([
     db.prepare('UPDATE history SET done_at = NULL WHERE id = ?1').bind(id),
     db.prepare('DELETE FROM history_doers WHERE history_id = ?1').bind(id),
+    db.prepare('DELETE FROM history_thanks WHERE history_id = ?1').bind(id),
   ])
+  return c.json(await getHistory(db, date))
+})
+
+app.post('/api/history/:id/thanks', async (c) => {
+  const body = await c.req.json<ThanksBody>().catch(() => ({}) as ThanksBody)
+  const id = Number(c.req.param('id'))
+  const db = c.env.DB
+  const date = await historyDate(db, id)
+  if (!date) return c.json({ error: `書き換えられるのは ${HISTORY_DAYS} 日前までです` }, 400)
+  const error = await setThanks(db, 'history', id, Number(body.memberId), body.on !== false)
+  if (error) return c.json({ error }, 400)
   return c.json(await getHistory(db, date))
 })
 
@@ -392,6 +514,59 @@ app.get('/api/stats', async (c) => {
   const range = c.req.query('range') ?? '30'
   if (!(range in STATS_RANGES)) return c.json({ error: 'range は 7・30・all のどれかです' }, 400)
   return c.json({ range, ...(await getStats(c.env.DB, STATS_RANGES[range])) })
+})
+
+// ---------- ごほうび(ポイントを使う) ----------
+
+// 一覧に出す、使った記録の数
+const USES_MAX = 100
+
+async function getRewards(db: D1Database) {
+  const uses = await db
+    .prepare(
+      `SELECT u.id, COALESCE(m.name, u.name) AS name, COALESCE(m.color, 0) AS color, u.points, u.yen_per_point AS yenPerPoint,
+         u.used_date AS date, u.canceled_at IS NOT NULL AS canceled
+       FROM point_uses u LEFT JOIN members m ON m.id = u.member_id ORDER BY u.id DESC LIMIT ${USES_MAX}`,
+    )
+    .all<{ canceled: number }>()
+  return { ...(await getPoints(db)), uses: uses.results.map((u) => ({ ...u, canceled: !!u.canceled })) }
+}
+
+app.get('/api/rewards', async (c) => c.json(await getRewards(c.env.DB)))
+
+// ポイントを使う。使えるポイントより多くは使えない
+app.post('/api/rewards/uses', async (c) => {
+  const body = await c.req.json<{ memberId?: unknown; points?: unknown }>().catch(() => ({}) as { memberId?: unknown; points?: unknown })
+  const db = c.env.DB
+  const points = Number(body.points)
+  if (!Number.isInteger(points) || points < 1) return c.json({ error: 'ポイントは 1 以上の整数で入力してください' }, 400)
+  const { points: people, yenPerPoint } = await getPoints(db)
+  const who = people.find((p) => p.id === Number(body.memberId))
+  if (!who) return c.json({ error: '家族が見つかりません' }, 400)
+  if (points > who.balance) return c.json({ error: `使えるのは ${Math.max(who.balance, 0)} ポイントまでです` }, 400)
+  await db
+    .prepare('INSERT INTO point_uses (member_id, name, points, yen_per_point, used_date, created_at) VALUES (?1, ?2, ?3, ?4, ?5, ?6)')
+    .bind(who.id, who.name, points, yenPerPoint, boardDate(), Date.now())
+    .run()
+  return c.json(await getRewards(db))
+})
+
+// 使った記録を取り消す(行は消さず、取り消しの印を付ける)
+app.post('/api/rewards/uses/:id/cancel', async (c) => {
+  const db = c.env.DB
+  await db.prepare('UPDATE point_uses SET canceled_at = ?2 WHERE id = ?1 AND canceled_at IS NULL').bind(Number(c.req.param('id')), Date.now()).run()
+  return c.json(await getRewards(db))
+})
+
+// 設定。今は 1 ポイントが何円かだけ
+app.patch('/api/settings', async (c) => {
+  const body = await c.req.json<{ yenPerPoint?: unknown }>().catch(() => ({}) as { yenPerPoint?: unknown })
+  const yen = Number(body.yenPerPoint)
+  if (!Number.isInteger(yen) || yen < 1 || yen > YEN_MAX) return c.json({ error: `1 ポイントは 1〜${YEN_MAX} 円で入力してください` }, 400)
+  await c.env.DB.prepare("INSERT INTO meta (key, value) VALUES ('yen_per_point', ?1) ON CONFLICT(key) DO UPDATE SET value = excluded.value")
+    .bind(String(yen))
+    .run()
+  return c.json(await getBoard(c.env.DB))
 })
 
 app.post('/api/members', async (c) => {
