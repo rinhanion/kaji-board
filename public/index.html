@@ -58,6 +58,11 @@
         <p id="progress-label" class="progress-label"></p>
         <div class="bar"><div id="bar-fill" class="bar-fill"></div></div>
       </div>
+      <!-- 自分の使えるポイント。タップで「ごほうび」へ -->
+      <a id="points-row" class="points-row" href="/rewards.html">
+        <span id="points-text" class="points-text"></span>
+        <svg viewBox="0 0 24 24" aria-hidden="true"><path d="M9 5l7 7-7 7"/></svg>
+      </a>
     </header>
 
     <div id="past-bar" class="past-bar" hidden>
@@ -137,6 +142,16 @@
     <section>
       <h3>家族</h3>
       <ul id="edit-members" class="edit-list"></ul>
+    </section>
+    <section>
+      <h3>ごほうび</h3>
+      <p class="hint">家事 1回と、もらった「ありがとう」1つで 1ポイント。ご飯のときに使えます。</p>
+      <label class="yen-row">
+        <span>1 ポイント =</span>
+        <input id="yen-input" type="number" inputmode="numeric" min="1" max="1000" step="1" aria-label="1 ポイントの円" enterkeyhint="done">
+        <span>円</span>
+      </label>
+      <a href="/rewards.html" class="btn link-btn">ごほうびを見る</a>
     </section>
     <section>
       <h3>記録</h3>
