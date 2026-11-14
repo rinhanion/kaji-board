@@ -15,7 +15,7 @@ export async function seed() {
     db.prepare('DELETE FROM tasks'),
     db.prepare('DELETE FROM members'),
     db.prepare('DELETE FROM meta'),
-    db.prepare("INSERT INTO members (id, name, sort) VALUES (1, 'ママ', 1), (2, 'パパ', 2)"),
+    db.prepare("INSERT INTO members (id, name, sort, color) VALUES (1, 'ママ', 1, 1), (2, 'パパ', 2, 2)"),
     db.prepare("INSERT INTO tasks (id, title, kind, sort, created_at) VALUES (1, '洗濯', 'daily', 1, 0), (2, '食器洗い', 'daily', 2, 0)"),
     db.prepare("INSERT INTO meta (key, value) VALUES ('board_date', ?1)").bind(today()),
   ])
@@ -51,7 +51,7 @@ export async function authCookie(): Promise<string> {
   return cookie
 }
 
-type Task = { id: number; title: string; kind: string; doers: { id: number; name: string }[]; doneAt: number | null }
+type Task = { id: number; title: string; kind: string; doers: { id: number; name: string; color: number }[]; doneAt: number | null }
 
 // ログイン済みで API を呼び、JSON を返す
 export async function api<T = { date: string; tasks: Task[]; past?: { date: string; tasks: Task[] }; error?: string }>(

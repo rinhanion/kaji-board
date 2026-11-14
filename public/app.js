@@ -32,6 +32,14 @@ function h(tag, attrs = {}, ...children) {
   return el
 }
 
+// 家族の色の数(サーバーの COLOR_COUNT と同じ)。色は style.css の --who-N
+const COLOR_COUNT = 6
+
+// 名前の前に付ける色の丸。color 0 は消した家族・だれか
+function dot(color) {
+  return h('span', { class: 'dot', style: `--c: var(--who-${color || 0})`, 'aria-hidden': 'true' })
+}
+
 function svgCheck() {
   const ns = 'http://www.w3.org/2000/svg'
   const svg = document.createElementNS(ns, 'svg')
@@ -217,7 +225,7 @@ function render() {
 
   const me = meMember()
   const chip = $('#me-btn')
-  chip.textContent = me ? me.name : '私は…'
+  chip.replaceChildren(...(me ? [dot(me.color), me.name] : ['私は…']))
   chip.classList.toggle('empty', !me)
 
   renderList()
@@ -250,7 +258,8 @@ function taskItem(t) {
   const done = !!t.doneAt
   // 過去の日に、その日が終わってから付けたチェックは時刻ではなく「あとから記録」と出す
   const late = done && pastDate && t.doneAt >= dayEnd(pastDate)
-  const meta = done ? `${t.doers.map((d) => d.name).join('・') || 'だれか'} · ${late ? 'あとから記録' : formatTime(t.doneAt)}` : null
+  const who = t.doers.length ? t.doers.flatMap((d, i) => [i ? '・' : '', dot(d.color), d.name]) : ['だれか']
+  const meta = done ? [...who, ` · ${late ? 'あとから記録' : formatTime(t.doneAt)}`] : null
   const card = h(
     'button',
     {
@@ -416,6 +425,7 @@ function renderWhoList() {
               },
             },
             svgCheck(),
+            dot(m.color),
             m.name,
           ),
         )
@@ -426,7 +436,7 @@ function renderWhoList() {
 
 $('#who-ok').addEventListener('click', () => {
   const id = whoTaskId
-  const doers = board.members.filter((m) => whoPicked.has(m.id)).map((m) => ({ id: m.id, name: m.name }))
+  const doers = board.members.filter((m) => whoPicked.has(m.id)).map((m) => ({ id: m.id, name: m.name, color: m.color }))
   $('#who-dialog').close()
   if (id != null && doers.length) doAssign(id, doers)
 })
@@ -548,7 +558,7 @@ function renderMeList() {
   }
   list.replaceChildren(
     ...board.members.map((m) =>
-      h('button', { type: 'button', class: m.id === meId ? 'on' : '', onclick: () => chooseMe(m) }, m.name),
+      h('button', { type: 'button', class: m.id === meId ? 'on' : '', onclick: () => chooseMe(m) }, dot(m.color), m.name),
     ),
   )
 }
@@ -559,7 +569,7 @@ function chooseMe(m) {
   pendingCheckId = null
   $('#me-dialog').close()
   render()
-  if (id != null) doCheck(id, m)
+  if (id != null) doCheck(id, [m])
 }
 
 $('#member-add-form').addEventListener('submit', async (e) => {
@@ -614,16 +624,34 @@ function renderEdit() {
       ? board.members.map((m) =>
           h(
             'li',
-            { class: 'edit-row' },
-            h('input', {
-              value: m.name,
-              maxlength: '12',
-              'aria-label': '名前',
-              enterkeyhint: 'done',
-              onchange: (e) => renameMember(m, e.target),
-              onkeydown: (e) => e.key === 'Enter' && e.target.blur(),
-            }),
-            h('button', { type: 'button', class: 'x', 'aria-label': '削除', onclick: () => deleteMember(m) }, '×'),
+            { class: 'edit-member' },
+            h(
+              'div',
+              { class: 'edit-row' },
+              h('input', {
+                value: m.name,
+                maxlength: '12',
+                'aria-label': '名前',
+                enterkeyhint: 'done',
+                onchange: (e) => renameMember(m, e.target),
+                onkeydown: (e) => e.key === 'Enter' && e.target.blur(),
+              }),
+              h('button', { type: 'button', class: 'x', 'aria-label': '削除', onclick: () => deleteMember(m) }, '×'),
+            ),
+            h(
+              'div',
+              { class: 'swatches', role: 'radiogroup', 'aria-label': `${m.name}の色` },
+              Array.from({ length: COLOR_COUNT }, (_, i) =>
+                h('button', {
+                  type: 'button',
+                  role: 'radio',
+                  style: `--c: var(--who-${i + 1})`,
+                  'aria-label': `色 ${i + 1}`,
+                  'aria-checked': String(m.color === i + 1),
+                  onclick: () => recolorMember(m, i + 1),
+                }),
+              ),
+            ),
           ),
         )
       : [h('li', { class: 'hint' }, '名前は、右上の「私は…」から追加できます')]),
@@ -676,6 +704,21 @@ function renameMember(m, input) {
     return
   }
   if (name !== m.name) editMutate(null, 'PATCH', `/api/members/${m.id}`, { name })
+}
+
+function recolorMember(m, color) {
+  if (color === m.color) return
+  editMutate(
+    // 家族は過去の日を見ているときも board にある
+    () => {
+      const x = board.members.find((y) => y.id === m.id)
+      if (x) x.color = color
+    },
+    'PATCH',
+    `/api/members/${m.id}`,
+    { color },
+  )
+  renderEdit()
 }
 
 function deleteMember(m) {

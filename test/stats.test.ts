@@ -9,8 +9,8 @@ type Stats = {
   to: string
   summary: { days: number; total: number; done: number; onceTotal: number; onceDone: number; unknown: number; firstDate: string | null }
   days: { date: string; total: number; done: number }[]
-  chores: { id: number; title: string; deleted: boolean; total: number; done: number; unknown: number; doers: { name: string; count: number }[] }[]
-  people: { name: string; count: number }[]
+  chores: { id: number; title: string; deleted: boolean; total: number; done: number; unknown: number; doers: { name: string; color: number; count: number }[] }[]
+  people: { name: string; color: number; count: number }[]
   error?: string
 }
 
@@ -64,8 +64,8 @@ describe('集計', () => {
   it('一緒にやった家事は、それぞれ 1 回と数える', async () => {
     const { data } = await stats('7')
     expect(data.people).toEqual([
-      { name: 'ママ', count: 2 },
-      { name: 'パパ', count: 2 },
+      { name: 'ママ', color: 1, count: 2 },
+      { name: 'パパ', color: 2, count: 2 },
     ])
   })
 
@@ -76,8 +76,8 @@ describe('集計', () => {
       ['食器洗い', 2, 1],
     ])
     expect(data.chores[0].doers).toEqual([
-      { name: 'ママ', count: 1 },
-      { name: 'パパ', count: 1 },
+      { name: 'ママ', color: 1, count: 1 },
+      { name: 'パパ', color: 2, count: 1 },
     ])
   })
 

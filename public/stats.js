@@ -34,6 +34,8 @@ function shortDate(iso) {
   const [, m, d] = iso.split('-').map(Number)
   return `${m}/${d}`
 }
+// 名前の前に付ける色の丸。color 0 は消した家族・だれか
+const dot = (color) => h('span', { class: 'dot', style: `--c: var(--who-${color || 0})`, 'aria-hidden': 'true' })
 const pct = (done, total) => (total ? Math.round((done / total) * 100) : 0)
 
 function getRange() {
@@ -170,8 +172,12 @@ function renderPeople(data) {
           h(
             'li',
             { class: r.unknown ? 'hbar unknown' : 'hbar' },
-            h('span', { class: 'hbar-name' }, r.name),
-            h('span', { class: 'hbar-track' }, h('span', { class: 'hbar-fill', style: `width: ${(r.count / max) * 100}%` })),
+            h('span', { class: 'hbar-name' }, r.unknown ? null : dot(r.color), r.name),
+            h(
+              'span',
+              { class: 'hbar-track' },
+              h('span', { class: 'hbar-fill', style: `width: ${(r.count / max) * 100}%; --c: var(--who-${r.unknown ? 0 : r.color || 0})` }),
+            ),
             h('span', { class: 'hbar-num' }, `${r.count}回`),
           ),
         )
@@ -184,8 +190,8 @@ function renderPeople(data) {
 function renderChores(data) {
   $('#chores').replaceChildren(
     ...data.chores.map((t) => {
-      const who = t.doers.map((d) => `${d.name} ${d.count}`)
-      if (t.unknown) who.push(`だれか ${t.unknown}`)
+      const who = t.doers.map((d) => h('span', { class: 'who' }, dot(d.color), `${d.name} ${d.count}`))
+      if (t.unknown) who.push(h('span', { class: 'who' }, dot(0), `だれか ${t.unknown}`))
       return h(
         'li',
         { class: 'chore' },
@@ -196,7 +202,7 @@ function renderChores(data) {
           h('span', { class: 'chore-rate' }, `${pct(t.done, t.total)}%`),
         ),
         h('span', { class: 'hbar-track' }, h('span', { class: 'hbar-fill', style: `width: ${pct(t.done, t.total)}%` })),
-        h('p', { class: 'chore-sub' }, `${t.total}日のうち ${t.done}日`, who.length ? ` ・ ${who.join(' / ')}` : ''),
+        h('p', { class: 'chore-sub' }, `${t.total}日のうち ${t.done}日`, who.length ? [' ・ ', ...who.flatMap((w, i) => (i ? [' / ', w] : [w]))] : ''),
       )
     }),
   )

@@ -14,6 +14,14 @@
   --success-bg: #E3F3EA;
   --danger: #A8312A;
   --danger-bg: #FBE7E5;
+  /* 家族の色(Cobalt Paper の 1 色の例外)。DB の members.color の番号に対応。0 は消した家族・だれか */
+  --who-0: var(--cobalt-200);
+  --who-1: #1F5FD6;
+  --who-2: #D9467A;
+  --who-3: #23885A;
+  --who-4: #D08A0E;
+  --who-5: #7A52CC;
+  --who-6: #0E8C94;
 
   --font-sans: "IBM Plex Sans JP", "Hiragino Sans", "Noto Sans JP", system-ui, sans-serif;
   /* 文字の段階: display 32 / heading 22 / subheading 18 / body 15 / caption 12 */
@@ -48,6 +56,12 @@
     --success-bg: #163326;
     --danger: #F49A92;
     --danger-bg: #3A1A18;
+    --who-1: #5B8DEB;
+    --who-2: #F07FA6;
+    --who-3: #5CC991;
+    --who-4: #F0B947;
+    --who-5: #A98BEF;
+    --who-6: #4FC4CB;
   }
 }
 
@@ -360,6 +374,21 @@ dialog h3 { font: var(--text-subheading); color: var(--cobalt-700); margin: 0 0 
 .edit-row button:disabled { opacity: .35; }
 .edit-row .x { background: var(--danger-bg); color: var(--danger); }
 
+/* 家族の色: 名前の前の丸と、設定の色えらび */
+.dot { display: inline-block; flex: none; width: .7em; height: .7em; margin-right: .3em; border-radius: 50%; background: var(--c, var(--who-0)); vertical-align: .05em; }
+.edit-member { display: flex; flex-direction: column; gap: 2px; }
+.swatches { display: flex; gap: 2px; margin-left: -6px; }
+.swatches button {
+  width: 44px; height: 44px; padding: 0; border: 0; background: transparent;
+  display: grid; place-items: center;
+}
+.swatches button::before {
+  content: ""; width: 26px; height: 26px; border-radius: 50%; background: var(--c);
+  transition: transform 400ms var(--ease-bounce);
+}
+.swatches button[aria-checked="true"]::before { box-shadow: 0 0 0 3px var(--paper), 0 0 0 5px var(--c); }
+.swatches button:active::before { transform: scale(.85); transition-duration: 80ms; }
+
 /* --- 集計 --- */
 .stats { padding-bottom: calc(env(safe-area-inset-bottom) + var(--space-8)); }
 .stats-head { margin-bottom: var(--space-4); }
@@ -413,9 +442,10 @@ dialog h3 { font: var(--text-subheading); color: var(--cobalt-700); margin: 0 0 
 .hbar-name { font-weight: 700; overflow: hidden; text-overflow: ellipsis; white-space: nowrap; }
 .hbar-num { font-weight: 500; font-variant-numeric: tabular-nums; min-width: 3.5em; text-align: right; }
 .hbar-track { display: block; height: 12px; background: var(--cobalt-50); border-radius: var(--radius-pill); overflow: hidden; }
-.hbar-fill { display: block; height: 100%; background: var(--cobalt-500); border-radius: inherit; transition: width 600ms var(--ease-bounce); }
+.hbar-fill { display: block; height: 100%; background: var(--c, var(--cobalt-500)); border-radius: inherit; transition: width 600ms var(--ease-bounce); }
 .hbar.unknown .hbar-name { color: var(--cobalt-700); font-weight: 500; }
-.hbar.unknown .hbar-fill { background: var(--cobalt-200); }
+.hbar.unknown .hbar-fill { background: var(--who-0); }
+.chore-sub .who { white-space: nowrap; }
 
 /* 毎日の家事 */
 .chores { list-style: none; margin: 0; padding: 0; display: flex; flex-direction: column; gap: var(--space-3); }
