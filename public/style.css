@@ -445,6 +445,11 @@ dialog h3 { font: var(--text-subheading); color: var(--cobalt-700); margin: 0 0 
 .hbar-fill { display: block; height: 100%; background: var(--c, var(--cobalt-500)); border-radius: inherit; transition: width 600ms var(--ease-bounce); }
 .hbar.unknown .hbar-name { color: var(--cobalt-700); font-weight: 500; }
 .hbar.unknown .hbar-fill { background: var(--who-0); }
+/* 人ごとに塗り分けたゲージ。角はトラックの丸みで切り、区切りは細いすき間で見せる */
+.hbar-track.stack { display: flex; }
+.hbar-track.stack .hbar-fill { flex: none; border-radius: 0; }
+.hbar-track.stack .hbar-fill + .hbar-fill { box-shadow: inset 2px 0 0 var(--paper-raised); }
+.hbar-track.stack .hbar-fill:last-child { border-radius: 0 var(--radius-pill) var(--radius-pill) 0; }
 .chore-sub .who { white-space: nowrap; }
 
 /* 毎日の家事 */
