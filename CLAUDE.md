@@ -11,6 +11,13 @@
   - PR 本文に `Closes #<Issue 番号>` を書く。マージは squash で、ブランチは消す
   - PR では GitHub Actions の `check`(`npm run check` と同じ)が走る。通ってからマージする
   - 設計が合意できていれば、マージまで Claude が行ってよい
+- 機能づくりは、役割ごとのサブエージェント(`.claude/agents/`)に順に書かせる。本体は呼び出しと承認のとりつぎ、コミット・PR を受け持つ
+  1. `spec-writer` が `docs/specs/<Issue 番号>-<名前>.md` に仕様を書く → 本人の承認
+  2. `designer` が同じ文書に設計を書く → 本人の承認
+  3. `implementer` が設計どおりに実装する
+  4. `tester` が `test/` にテストを足し `npm run check` を通す。実装の食い違いは 3 に戻す
+  5. `reviewer` が差分を読んで指摘する。直すものは 3・4 に戻す
+  - 文言の直しなど小さな変更は、本体がそのまま行ってよい
 - 変更したら、コミットの前に `npm run check`(型チェックとテスト)を通す
 - 動きを変えたら、`test/` にテストを足す。テストは Workers の実行環境と本物の D1 の上で動く
 
