@@ -39,6 +39,7 @@ Claude Code のフックで、上の決まりの一部を機械的に止める�
 
 - 当て済みの `migrations/*.sql` は書き換えない。変更は新しい番号のファイルを足す
 - `history` テーブルは分析用に消さずにためる。行を消す処理を足さない(画面で見せるのは 7 日前までと分けて考える)
+- 買い物メモ(`shopping_items`)の買った行も、分析用に消さずにためる。消してよいのは、まだ買っていない品を × で消すときだけ
 - `.dev.vars` は読まない・書かない。合言葉は `wrangler secret put FAMILY_PASSPHRASE` で本人が入れる
 - `wrangler.jsonc` の `database_id` は本番の D1。勝手に変えない
 
