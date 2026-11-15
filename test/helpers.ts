@@ -10,6 +10,7 @@ export const daysAgo = (n: number) => boardDate(Date.now() - n * DAY)
 export async function seed() {
   const db = env.DB
   await db.batch([
+    db.prepare('DELETE FROM shopping_items'),
     db.prepare('DELETE FROM point_uses'),
     db.prepare('DELETE FROM task_thanks'),
     db.prepare('DELETE FROM history_thanks'),

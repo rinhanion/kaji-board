@@ -362,7 +362,7 @@ li.shop-row[.bought][.flash]     ← onLongPress(li, () => openBuyer(s.id))
   - 買った品には `.x` を作らない。行の右はしが空くので、`.shop-row.bought` は右の余白を `.x` の幅ぶん取り、品名の位置がずれないようにする
   - 長押しは行(`li`)に付ける。`onLongPress` はクリックを捕まえる段階(capture)で打ち消すので、行の中の ○ や × のクリックも長押しのあとは走らない。`.card` と同じく `.shop-row` に `-webkit-touch-callout: none; user-select: none` を付ける(長押しで文字の選択やメニューが出ないように)
   - 送信中の品(仮の負の id)は、○ と × を `disabled` にし、長押しもしない(サーバーの id が返る前に押されて 404 になるのを防ぐ)
-  - シートに「長押しで、買った人を選べます」の一言は足さない(仕様に無いため。要るなら本人に聞く)
+  - シートの説明の下に「長押しで、買った人を選べます」の一言(`#shop-long-hint`)を出す。家族が 2 人以上で品が 1 つ以上あるときだけ(決めたこと 14)
 
 操作(どれも今の `mutate(optimistic, method, path, body)` を使う。今日を見ているときしか開けないので、`optimistic` が受け取る `view()` は `board`):
 

@@ -83,11 +83,13 @@ button, input { font: inherit; color: inherit; }
 button { cursor: pointer; touch-action: manipulation; }
 
 /* 押すと縮み、離すと弾んで戻る */
-.btn, .chip, .icon-btn, .day-btn, .fab, .del, .toast button, .me-list button, .edit-row button {
+.btn, .chip, .icon-btn, .day-btn, .fab, .del, .toast button, .me-list button, .edit-row button,
+.shop, .me-points, .shop-row .box, .shop-row .x {
   transition: transform 400ms var(--ease-bounce), background-color 150ms, color 150ms;
 }
 .btn:active, .chip:active, .icon-btn:active, .day-btn:active:not(:disabled), .fab:active, .del:active,
-.toast button:active, .me-list button:active, .edit-row button:active:not(:disabled) {
+.toast button:active, .me-list button:active, .edit-row button:active:not(:disabled),
+.shop:active, .me-points:active, .shop-row .box:active:not(:disabled), .shop-row .x:active:not(:disabled) {
   transform: scale(.9);
   transition-duration: 80ms;
 }
@@ -139,9 +141,9 @@ input:focus { outline: 2px solid var(--cobalt-500); outline-offset: -1px; }
 
 /* --- ヘッダー --- */
 .top { margin-bottom: var(--space-6); }
-.top-row { display: flex; justify-content: space-between; align-items: flex-end; gap: var(--space-3); }
+.top-row { display: flex; justify-content: space-between; align-items: flex-start; gap: var(--space-3); }
 .date { margin: 0; color: var(--cobalt-700); font-weight: 500; }
-.top-actions { display: flex; gap: var(--space-2); align-items: center; }
+.top-actions { display: flex; gap: var(--space-2); align-items: flex-start; }
 
 .chip {
   min-height: 48px;
@@ -462,21 +464,16 @@ dialog h3 { font: var(--text-subheading); color: var(--cobalt-700); margin: 0 0 
 .chore-sub { margin: 6px 0 0; color: var(--cobalt-700); font: var(--text-caption); }
 
 /* --- ポイントと「ありがとう」 --- */
-/* 自分の使えるポイント(進み具合の下。タップで「ごほうび」へ) */
-.points-row {
-  display: flex; align-items: center; gap: var(--space-2);
-  min-height: 48px; margin-top: var(--space-3);
-  padding: 0 var(--space-3) 0 var(--space-4);
+/* 自分の使えるポイント(名前の下に小さく。タップで「ごほうび」へ) */
+.me-col { display: flex; flex-direction: column; align-items: flex-end; gap: 2px; }
+.me-points {
+  display: inline-flex; align-items: center; gap: 2px;
+  min-height: 28px; padding: 0 4px 0 8px;
   border-radius: var(--radius-pill);
-  background: var(--cobalt-50); color: var(--cobalt-700);
-  font-weight: 500; text-decoration: none;
-  transition: transform 400ms var(--ease-bounce);
+  color: var(--cobalt-700); font: var(--text-caption); font-weight: 500; text-decoration: none;
 }
-.points-row:active { transform: scale(.97); transition-duration: 80ms; }
-.points-text { flex: 1; min-width: 0; }
-.points-text .num { font-weight: 700; font-variant-numeric: tabular-nums; color: var(--cobalt-900); }
-.points-row svg { width: 18px; height: 18px; flex: none; fill: none; stroke: currentColor; stroke-width: 2.4; stroke-linecap: round; stroke-linejoin: round; }
-.past .points-row { background: var(--paper-raised); }
+.me-points .num { font-weight: 700; font-variant-numeric: tabular-nums; }
+.me-points svg { width: 14px; height: 14px; fill: none; stroke: currentColor; stroke-width: 2.4; stroke-linecap: round; stroke-linejoin: round; }
 
 /* ありがとう(完了したカードの右。やった人以外に出る) */
 .item.has-thanks .card { padding-right: 132px; }
@@ -532,3 +529,77 @@ dialog h3 { font: var(--text-subheading); color: var(--cobalt-700); margin: 0 0 
   *, *::before, *::after { animation: none !important; transition-property: background-color, color, opacity !important; }
   .card:active, .btn:active, .chip:active, .icon-btn:active, .day-btn:active, .fab:active { transform: none; }
 }
+
+/* --- 買い物メモ --- */
+/* ボードの欄(進み具合の下)。どこをタップしてもシートが開く */
+.shop {
+  display: block; width: 100%;
+  margin-top: var(--space-3);
+  padding: var(--space-3) var(--space-3) var(--space-3) var(--space-4);
+  border: 0; border-radius: var(--radius-lg);
+  background: var(--cobalt-50); color: var(--cobalt-700);
+  text-align: left;
+}
+.shop-head { display: flex; align-items: center; gap: var(--space-2); font-weight: 700; color: var(--cobalt-900); }
+.shop-head .count {
+  min-width: 24px; height: 24px; padding: 0 8px;
+  border-radius: var(--radius-pill);
+  background: var(--cobalt-500); color: var(--on-cobalt);
+  font: var(--text-caption); font-weight: 700;
+  display: grid; place-items: center;
+}
+.shop-head .add { margin-left: auto; display: inline-flex; align-items: center; gap: 4px; color: var(--cobalt-500); font-weight: 700; }
+.shop-head svg { width: 18px; height: 18px; flex: none; fill: none; stroke: currentColor; stroke-width: 2.2; stroke-linecap: round; stroke-linejoin: round; }
+/* offsetTop をこの中の位置にして、札の行を数える */
+.shop-items { position: relative; display: flex; flex-wrap: wrap; gap: 6px; margin-top: var(--space-2); }
+.shop.empty .shop-items { display: block; margin-top: 2px; font: var(--text-caption); color: var(--cobalt-700); }
+.shop-pill {
+  display: inline-block; max-width: 100%;
+  min-height: 32px; padding: 0 12px;
+  border-radius: var(--radius-pill);
+  background: var(--paper-raised); color: var(--cobalt-900);
+  font-weight: 500; line-height: 32px;
+  overflow: hidden; text-overflow: ellipsis; white-space: nowrap;
+}
+.shop-pill.more { background: transparent; color: var(--cobalt-700); outline: 1px dashed var(--cobalt-200); outline-offset: -1px; }
+
+/* シート */
+.shop-long-hint { margin: 0 0 var(--space-2); text-align: left; }
+.shop-list { list-style: none; margin: var(--space-3) 0; padding: 0; display: flex; flex-direction: column; gap: var(--space-2); }
+.shop-row {
+  display: flex; align-items: center; gap: var(--space-2);
+  min-height: 56px; padding: 0 var(--space-2) 0 var(--space-2);
+  border: 1px solid var(--cobalt-200); border-radius: var(--radius-md);
+  background: var(--paper-raised);
+}
+/* 長押しで文字選択やメニューが出ないようにする */
+.shop-row { -webkit-touch-callout: none; -webkit-user-select: none; user-select: none; }
+.shop-row .box, .shop-row .x {
+  flex: none;
+  width: 44px; height: 44px; padding: 0;
+  border: 0; border-radius: var(--radius-pill); background: transparent;
+  display: grid; place-items: center;
+  color: var(--cobalt-700);
+}
+.shop-row .box::before {
+  content: ""; grid-area: 1 / 1;
+  width: 28px; height: 28px;
+  border: 2px solid var(--cobalt-200); border-radius: 50%;
+}
+.shop-row .box svg {
+  grid-area: 1 / 1; position: relative;
+  width: 16px; height: 16px; fill: none; stroke: var(--on-cobalt); stroke-width: 3; stroke-linecap: round; stroke-linejoin: round; opacity: 0;
+}
+.shop-row .x svg { width: 18px; height: 18px; fill: none; stroke: currentColor; stroke-width: 2.2; stroke-linecap: round; }
+.shop-row button:disabled { opacity: .4; }
+.shop-row .name { flex: 1; min-width: 0; font-weight: 500; overflow-wrap: anywhere; }
+.shop-row .by { display: block; font: var(--text-caption); color: var(--cobalt-700); }
+.shop-row.bought { border-style: dashed; background: transparent; padding-right: calc(var(--space-2) + 44px); }
+.shop-row.bought .box::before { background: var(--cobalt-700); border-color: var(--cobalt-700); }
+.shop-row.bought .box svg { opacity: 1; }
+.shop-row.bought .label { text-decoration: line-through; text-decoration-thickness: 1.5px; color: var(--cobalt-700); opacity: .7; }
+.shop-row.flash { animation: flash 700ms ease; }
+@keyframes flash { from { background: var(--cobalt-200); } }
+.shop-add { display: flex; gap: var(--space-2); }
+.shop-add input { flex: 1; min-width: 0; }
+.shop-msg { margin: var(--space-2) 0 0; min-height: 18px; color: var(--cobalt-700); font: var(--text-caption); }

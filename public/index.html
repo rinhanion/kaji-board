@@ -48,7 +48,14 @@
           <h1 id="title" class="title">今日の家事</h1>
         </div>
         <div class="top-actions">
-          <button id="me-btn" class="chip" type="button" aria-label="自分の名前を選ぶ"></button>
+          <div class="me-col">
+            <button id="me-btn" class="chip" type="button" aria-label="自分の名前を選ぶ"></button>
+            <!-- 自分の使えるポイント。タップで「ごほうび」へ -->
+            <a id="me-points" class="me-points" href="/rewards.html">
+              <span id="me-points-text"></span>
+              <svg viewBox="0 0 24 24" aria-hidden="true"><path d="M9 5l7 7-7 7"/></svg>
+            </a>
+          </div>
           <button id="edit-btn" class="icon-btn" type="button" aria-label="家事を編集">
             <svg viewBox="0 0 24 24" aria-hidden="true"><path d="M4 7h10M18 7h2M4 17h4M12 17h8"/><circle cx="16" cy="7" r="2"/><circle cx="10" cy="17" r="2"/></svg>
           </button>
@@ -58,11 +65,15 @@
         <p id="progress-label" class="progress-label"></p>
         <div class="bar"><div id="bar-fill" class="bar-fill"></div></div>
       </div>
-      <!-- 自分の使えるポイント。タップで「ごほうび」へ -->
-      <a id="points-row" class="points-row" href="/rewards.html">
-        <span id="points-text" class="points-text"></span>
-        <svg viewBox="0 0 24 24" aria-hidden="true"><path d="M9 5l7 7-7 7"/></svg>
-      </a>
+      <!-- 買い物メモ。どこをタップしてもシートが開く -->
+      <button id="shop" class="shop" type="button">
+        <span class="shop-head">
+          <svg viewBox="0 0 24 24" aria-hidden="true"><path d="M3 4h2l2.4 11h11L21 8H6.2"/><circle cx="9" cy="19.5" r="1.3"/><circle cx="17" cy="19.5" r="1.3"/></svg>
+          買い物メモ <span id="shop-count" class="count"></span>
+          <span class="add"><svg viewBox="0 0 24 24" aria-hidden="true"><path d="M12 5v14M5 12h14"/></svg>書く</span>
+        </span>
+        <span id="shop-items" class="shop-items"></span>
+      </button>
     </header>
 
     <div id="past-bar" class="past-bar" hidden>
@@ -122,6 +133,32 @@
       <button id="who-undo" type="button" class="btn">未完了に戻す</button>
       <button type="button" class="btn" data-close>とじる</button>
       <button id="who-ok" type="button" class="btn primary">これで完了</button>
+    </div>
+  </dialog>
+
+  <!-- 買い物メモ -->
+  <dialog id="shop-dialog" class="sheet">
+    <h2>買い物メモ</h2>
+    <p class="hint">買ったら ○ をタップ。買ったものは明日の朝 4時に消えます</p>
+    <p id="shop-long-hint" class="long-hint shop-long-hint" hidden>長押しで、買った人を選べます</p>
+    <ul id="shop-list" class="shop-list"></ul>
+    <form id="shop-form" class="shop-add">
+      <input id="shop-name" maxlength="40" placeholder="例: ケチャップ" enterkeyhint="done" autocomplete="off" aria-label="品名">
+      <button type="submit" class="btn primary">追加</button>
+    </form>
+    <p id="shop-msg" class="shop-msg" role="status"></p>
+    <div class="sheet-actions">
+      <button type="button" class="btn" data-close>とじる</button>
+    </div>
+  </dialog>
+
+  <!-- だれが買った?(買い物メモの行の長押しで開く。1 人だけ選ぶ) -->
+  <dialog id="buyer-dialog" class="sheet">
+    <h2>だれが買った?</h2>
+    <p id="buyer-item" class="hint"></p>
+    <div id="buyer-list" class="me-list"></div>
+    <div class="sheet-actions">
+      <button type="button" class="btn" data-close>とじる</button>
     </div>
   </dialog>
 

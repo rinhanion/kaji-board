@@ -5,6 +5,7 @@ const UNDO_MS = 5_000
 const LONG_PRESS_MS = 500
 const ME_KEY = 'kaji_me'
 const HISTORY_DAYS = 7 // さかのぼれる日数(サーバーと合わせる)
+const SHOPPING_MAX = 50 // 買い物メモの、まだ買っていない品の上限(サーバーと合わせる)
 
 const $ = (sel) => document.querySelector(sel)
 
@@ -18,6 +19,8 @@ let whoTaskId = null // 「だれがやった?」で選んでいる家事
 let whoPicked = new Set() // 「だれがやった?」で選ばれている人の id
 let pastDate = null // 見ている過去の日。null なら今日
 let past = null // 過去の日の記録 { date, tasks }。読み込み中は null
+let shopFlashId = null // 「もうあります」で光らせる買い物メモの品
+let buyerItemId = null // 「だれが買った?」で選んでいる品
 
 // ---------- 小さな道具 ----------
 
@@ -86,10 +89,6 @@ function daysBetween(from, to) {
 // その家事の日の終わり(翌日の JST 4:00)
 function dayEnd(iso) {
   return Date.parse(shiftDate(iso, 1)) + (4 - 9) * 3600_000
-}
-// ポイントを円にして出す(1,234円ぶん)。マイナスのときは 0 円
-function formatYen(points) {
-  return `${(Math.max(points, 0) * (board?.yenPerPoint ?? 10)).toLocaleString('ja-JP')}円ぶん`
 }
 function formatTime(ms) {
   const d = new Date(ms)
@@ -188,7 +187,14 @@ function apply(data) {
     }
     return
   }
-  board = { date: data.date, members: data.members, tasks: data.tasks, points: data.points ?? [], yenPerPoint: data.yenPerPoint ?? 10 }
+  board = {
+    date: data.date,
+    members: data.members,
+    tasks: data.tasks,
+    shopping: data.shopping ?? [],
+    points: data.points ?? [],
+    yenPerPoint: data.yenPerPoint ?? 10,
+  }
   if (getMe() && !meMember()) setMe(null) // 自分の名前が消されていたら選び直し
   render()
 }
@@ -215,6 +221,7 @@ function render() {
   $('#board').classList.toggle('past', back > 0)
   $('#past-bar').hidden = back === 0
   $('#fab').hidden = back > 0
+  $('#shop').hidden = back > 0 // 買い物メモは今の話なので、過去の日は隠す
   $('#no-record').hidden = !(back > 0 && past && past.tasks.length === 0)
 
   const tasks = viewTasks()
@@ -235,13 +242,13 @@ function render() {
   chip.replaceChildren(...(me ? [dot(me.color), me.name] : ['私は…']))
   chip.classList.toggle('empty', !me)
 
-  // 自分の使えるポイント。名前を選んでいない端末では、ごほうびへの入口だけ
+  // 名前の下に、自分の使えるポイント。名前を選んでいない端末では、ごほうびへの入口だけ
   const mine = me && board.points.find((p) => p.id === me.id)
-  $('#points-text').replaceChildren(
-    ...(mine ? [dot(me.color), h('span', { class: 'num' }, String(mine.balance)), ` ポイント(${formatYen(mine.balance)})`] : ['ごほうびを見る']),
-  )
+  $('#me-points-text').replaceChildren(...(mine ? [h('span', { class: 'num' }, String(mine.balance)), 'pt'] : ['ごほうび']))
 
   renderList()
+  renderShop()
+  if ($('#shop-dialog').open) renderShopList()
   if ($('#me-dialog').open) renderMeList()
 }
 
@@ -509,6 +516,250 @@ $('#who-dialog').addEventListener('close', () => {
 function removeOnce(t) {
   if (!confirm(`「${t.title}」を削除しますか?`)) return
   mutate((b) => (b.tasks = b.tasks.filter((x) => x.id !== t.id)), 'DELETE', `/api/tasks/${t.id}`)
+}
+
+// ---------- 買い物メモ ----------
+
+// 同じ品か見る鍵(サーバーの cleanText → normalize と同じ 2 段)
+function cleanName(s) {
+  return s.trim().replace(/\s+/g, ' ')
+}
+function nameKey(s) {
+  return cleanName(s).normalize('NFKC').trim()
+}
+
+function unbought() {
+  return board.shopping.filter((s) => !s.boughtAt)
+}
+
+// 札を 2 行ぶんまで並べ、入りきらない分は「ほか N 件」にまとめる。
+// 幅は端末で変わるので、いったん全部並べてから、置かれた位置(offsetTop)で行を数える
+function renderShop() {
+  const items = unbought()
+  const box = $('#shop-items')
+  $('#shop').classList.toggle('empty', items.length === 0)
+  $('#shop-count').hidden = items.length === 0
+  $('#shop-count').textContent = String(items.length) // 数の札はいつも全部の数
+  if (!items.length) {
+    box.replaceChildren('ほしいもの・切れたものを書いておくと、買い物に行く人が見られます')
+    return
+  }
+  const pills = items.map((s) => h('span', { class: 'shop-pill' }, s.name))
+  box.replaceChildren(...pills)
+  const tops = [...new Set(pills.map((p) => p.offsetTop))].sort((a, b) => a - b)
+  if (tops.length <= 2) return
+  // 3 行目より下を外し、「ほか N 件」を足す。「ほか」が 3 行目に落ちたら、手前の札を 1 つずつ外す
+  let shown = pills.filter((p) => p.offsetTop <= tops[1])
+  const more = h('span', { class: 'shop-pill more' })
+  for (;;) {
+    more.textContent = `ほか ${items.length - shown.length} 件`
+    box.replaceChildren(...shown, more)
+    if (more.offsetTop <= tops[1] || shown.length === 0) break
+    shown = shown.slice(0, -1)
+  }
+}
+// 隠れている間(合言葉の入力中・過去の日)は位置が取れないので、欄の幅が変わったとき
+// (見えるようになったとき・向きを変えたとき)に測り直す。札の入れ替えでは高さしか変わらないので、ループしない
+let shopWidth = 0
+new ResizeObserver(([e]) => {
+  const w = Math.round(e.contentRect.width)
+  if (w === shopWidth) return
+  shopWidth = w
+  if (board && w > 0) renderShop()
+}).observe($('#shop-items'))
+
+function openShop() {
+  $('#shop-msg').textContent = ''
+  renderShopList()
+  $('#shop-dialog').showModal() // 自分で focus() は呼ばない(見るだけのときにキーボードで一覧が隠れないように)
+}
+$('#shop').addEventListener('click', openShop)
+
+function renderShopList() {
+  $('#shop-long-hint').hidden = !(board.shopping.length > 0 && board.members.length >= 2)
+  $('#shop-list').replaceChildren(...board.shopping.map(shopRow))
+}
+
+function shopRow(s) {
+  const bought = !!s.boughtAt
+  const temp = s.id < 0 // 送信中(サーバーの id がまだ無い)
+  // 人が null(名前なし・消した家族)なら、まだ: 何も出さない、買った: 「買った」だけ
+  const by = bought
+    ? s.boughtBy
+      ? [dot(s.boughtBy.color), s.boughtBy.name, ' が買った']
+      : ['買った']
+    : s.addedBy
+      ? [dot(s.addedBy.color), s.addedBy.name]
+      : []
+  const li = h(
+    'li',
+    { class: `shop-row${bought ? ' bought' : ''}${s.id === shopFlashId ? ' flash' : ''}`, 'data-id': String(s.id) },
+    h(
+      'button',
+      {
+        type: 'button',
+        class: 'box',
+        'aria-pressed': bought ? 'true' : 'false',
+        'aria-label': `${s.name}を買った`,
+        disabled: temp,
+        onclick: () => (bought ? unbuyItem(s) : buyItem(s)),
+      },
+      svgCheck(),
+    ),
+    h('span', { class: 'name' }, h('span', { class: 'label' }, s.name), by.length ? h('span', { class: 'by' }, by) : null),
+    bought
+      ? null
+      : h(
+          'button',
+          { type: 'button', class: 'x', 'aria-label': `${s.name}を消す`, disabled: temp, onclick: () => removeItem(s) },
+          svgCross(),
+        ),
+  )
+  if (!temp) onLongPress(li, () => openBuyer(s.id))
+  return li
+}
+
+function svgCross() {
+  const ns = 'http://www.w3.org/2000/svg'
+  const svg = document.createElementNS(ns, 'svg')
+  svg.setAttribute('viewBox', '0 0 24 24')
+  svg.setAttribute('aria-hidden', 'true')
+  const p = document.createElementNS(ns, 'path')
+  p.setAttribute('d', 'M6 6l12 12M18 6L6 18')
+  svg.append(p)
+  return svg
+}
+
+// すでにある品を少し光らせて「もうあります」と知らせる
+function flashItem(id) {
+  shopFlashId = id
+  $('#shop-msg').textContent = 'もうあります'
+  renderShopList()
+  $(`#shop-list [data-id="${id}"]`)?.scrollIntoView({ block: 'nearest' })
+  setTimeout(() => {
+    if (shopFlashId !== id) return
+    shopFlashId = null
+    $(`#shop-list [data-id="${id}"]`)?.classList.remove('flash')
+  }, 700)
+}
+
+$('#shop-name').addEventListener('input', () => ($('#shop-msg').textContent = ''))
+
+$('#shop-form').addEventListener('submit', (e) => {
+  e.preventDefault()
+  const input = $('#shop-name')
+  const name = cleanName(input.value)
+  if (!name) return
+  const key = nameKey(name)
+  const same = unbought().find((s) => nameKey(s.name) === key)
+  if (same) {
+    flashItem(same.id)
+    return
+  }
+  if (unbought().length >= SHOPPING_MAX) {
+    $('#shop-msg').textContent = 'メモがいっぱいです。買ったものや要らないものを消してください'
+    return
+  }
+  input.value = '' // フォーカスはそのまま。続けて書ける
+  $('#shop-msg').textContent = ''
+  const me = meMember()
+  const tempId = -Date.now()
+  const addedBy = me ? { id: me.id, name: me.name, color: me.color } : null
+  mutate(
+    (b) => {
+      // まだの品の終わり(買った品の上)に足す
+      const i = b.shopping.findIndex((s) => s.boughtAt)
+      const item = { id: tempId, name, createdAt: Date.now(), boughtAt: null, addedBy, boughtBy: null }
+      i < 0 ? b.shopping.push(item) : b.shopping.splice(i, 0, item)
+    },
+    'POST',
+    '/api/shopping',
+    { name, memberId: me?.id },
+  )
+})
+
+// 並びは「まだの品(書いた順)→ 買った品(書いた順)」。サーバーと同じ
+function sortShopping(b) {
+  b.shopping.sort((x, y) => (!!x.boughtAt === !!y.boughtAt ? Math.abs(x.id) - Math.abs(y.id) : x.boughtAt ? 1 : -1))
+}
+
+function buyItem(s) {
+  const me = meMember()
+  const boughtBy = me ? { id: me.id, name: me.name, color: me.color } : null
+  const now = Date.now()
+  mutate(
+    (b) => {
+      const x = b.shopping.find((y) => y.id === s.id)
+      if (x && !x.boughtAt) Object.assign(x, { boughtAt: now, boughtBy })
+      sortShopping(b)
+    },
+    'POST',
+    `/api/shopping/${s.id}/buy`,
+    { memberId: me?.id },
+  )
+}
+
+function unbuyItem(s) {
+  // 同じ名前のまだの品があれば、戻さずに知らせる
+  const same = unbought().find((y) => nameKey(y.name) === nameKey(s.name))
+  if (same) {
+    flashItem(same.id)
+    return
+  }
+  mutate(
+    (b) => {
+      const x = b.shopping.find((y) => y.id === s.id)
+      if (x) Object.assign(x, { boughtAt: null, boughtBy: null })
+      sortShopping(b)
+    },
+    'POST',
+    `/api/shopping/${s.id}/unbuy`,
+  )
+}
+
+function removeItem(s) {
+  if (!confirm(`「${s.name}」を消しますか?`)) return
+  mutate((b) => (b.shopping = b.shopping.filter((x) => x.id !== s.id)), 'DELETE', `/api/shopping/${s.id}`)
+}
+
+// だれが買った?: 1 人だけ。名前をタップしたらすぐ決まって閉じる
+function openBuyer(id) {
+  const s = board.shopping.find((y) => y.id === id)
+  if (!s) return
+  buyerItemId = id
+  $('#buyer-item').textContent = `「${s.name}」を買った人を選んでください`
+  const current = s.boughtAt ? s.boughtBy?.id : null
+  $('#buyer-list').replaceChildren(
+    ...(board.members.length
+      ? board.members.map((m) =>
+          h('button', { type: 'button', class: m.id === current ? 'on' : '', onclick: () => chooseBuyer(m) }, dot(m.color), m.name),
+        )
+      : [h('p', { class: 'hint' }, 'まだ だれもいません。右上の「私は…」から名前を追加してください')]),
+  )
+  $('#buyer-dialog').showModal()
+}
+$('#buyer-dialog').addEventListener('close', () => {
+  buyerItemId = null
+})
+
+function chooseBuyer(m) {
+  const id = buyerItemId
+  $('#buyer-dialog').close()
+  const s = board.shopping.find((y) => y.id === id)
+  if (!s) return
+  if (s.boughtAt && s.boughtBy?.id === m.id) return // 今の買った人なら何もしない
+  const boughtBy = { id: m.id, name: m.name, color: m.color }
+  const now = Date.now()
+  mutate(
+    (b) => {
+      const x = b.shopping.find((y) => y.id === id)
+      if (x) Object.assign(x, { boughtAt: x.boughtAt ?? now, boughtBy })
+      sortShopping(b)
+    },
+    'POST',
+    `/api/shopping/${id}/buy`,
+    { memberId: m.id, reassign: true },
+  )
 }
 
 // ---------- 過去の日 ----------
