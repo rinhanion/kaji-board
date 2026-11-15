@@ -558,14 +558,15 @@ function renderShop() {
     shown = shown.slice(0, -1)
   }
 }
-// 隠れている間(合言葉の入力中・過去の日)は位置が取れないので、欄の幅が変わったとき
-// (見えるようになったとき・向きを変えたとき)に測り直す。札の入れ替えでは高さしか変わらないので、ループしない
+// 隠れている間(合言葉の入力中・過去の日)は幅が 0 で位置が取れないので、欄の幅が変わったとき
+// (見えるようになったとき・向きを変えたとき)に測り直す。幅が前と同じなら何もしないので、
+// 札の入れ替えで高さだけ変わっても呼び直さない。描き直しは 1 フレーム遅らせ、観察の最中に DOM を変えない
 let shopWidth = 0
 new ResizeObserver(([e]) => {
   const w = Math.round(e.contentRect.width)
   if (w === shopWidth) return
   shopWidth = w
-  if (board && w > 0) renderShop()
+  if (w > 0) requestAnimationFrame(() => board && renderShop())
 }).observe($('#shop-items'))
 
 function openShop() {

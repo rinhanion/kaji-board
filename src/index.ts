@@ -171,7 +171,8 @@ function personOf(id: number | null, name: string | null, color: number | null) 
   return id != null && name != null ? { id, name, color: color ?? 0 } : null
 }
 
-async function getBoard(db: D1Database) {
+// today は家事の日付。操作と同じ日付で一覧を返したいときに渡す
+async function getBoard(db: D1Database, today = boardDate()) {
   const [members, tasks, doers, thanks, shopping] = await db.batch([
     db.prepare('SELECT id, name, color FROM members ORDER BY sort, id'),
     db.prepare(
@@ -198,10 +199,10 @@ async function getBoard(db: D1Database) {
          WHERE ${SHOPPING_VISIBLE}
          ORDER BY s.bought_at IS NOT NULL, s.id`,
       )
-      .bind(boardDate()),
+      .bind(today),
   ])
   return {
-    date: boardDate(),
+    date: today,
     members: members.results,
     tasks: withDoers(tasks.results, doers.results, thanks.results),
     shopping: (shopping.results as ShoppingRow[]).map((r) => ({
@@ -416,6 +417,11 @@ async function unboughtIdOf(db: D1Database, key: string): Promise<number | null>
 
 type ShoppingBody = { name?: unknown; memberId?: unknown; reassign?: unknown }
 
+// その端末で選んでいる名前の id。数でなければ名前なし
+function memberIdOf(body: ShoppingBody): number | null {
+  return typeof body.memberId === 'number' && Number.isInteger(body.memberId) && body.memberId > 0 ? body.memberId : null
+}
+
 // 品を足す。書いた人は、その端末で選んでいる名前(無い・いない家族なら NULL)
 app.post('/api/shopping', async (c) => {
   const body = await c.req.json<ShoppingBody>().catch(() => ({}) as ShoppingBody)
@@ -423,16 +429,10 @@ app.post('/api/shopping', async (c) => {
   if (!name) return c.json({ error: `1〜${TITLE_MAX}文字で入力してください` }, 400)
   const key = normalize(name)
   const db = c.env.DB
-  const row = await db
-    .prepare(
-      `SELECT (SELECT id FROM shopping_items WHERE name_key = ?1 AND bought_at IS NULL) AS existingId,
-         (SELECT COUNT(*) FROM shopping_items WHERE bought_at IS NULL) AS count`,
-    )
-    .bind(key)
-    .first<{ existingId: number | null; count: number }>()
-  if (row?.existingId != null) return c.json({ error: 'もうあります', existingId: row.existingId }, 409)
+  const row = await db.prepare('SELECT COUNT(*) AS count FROM shopping_items WHERE bought_at IS NULL').first<{ count: number }>()
   if ((row?.count ?? 0) >= SHOPPING_MAX) return c.json({ error: 'メモがいっぱいです。買ったものや要らないものを消してください' }, 400)
-  const memberId = Number(body.memberId) || null
+  const memberId = memberIdOf(body)
+  // 同じ品名のまだの品があれば、部分ユニークインデックスにぶつかる(ほかの端末と同時に足したときも同じ)
   try {
     await db
       .prepare(
@@ -442,7 +442,6 @@ app.post('/api/shopping', async (c) => {
       .bind(name, key, Date.now(), memberId)
       .run()
   } catch (e) {
-    // ほかの端末と同時に同じ品を足したとき
     if (!isUnique(e)) throw e
     return c.json({ error: 'もうあります', existingId: await unboughtIdOf(db, key) }, 409)
   }
@@ -461,9 +460,9 @@ app.post('/api/shopping/:id/buy', async (c) => {
     .bind(today, id)
     .first()
   if (!item) return c.json({ error: 'この品はもう一覧にありません' }, 404)
-  const memberId = Number(body.memberId) || null
+  const memberId = memberIdOf(body)
   const who = `bought_by = (SELECT id FROM members WHERE id = ?3), bought_by_name = (SELECT name FROM members WHERE id = ?3)`
-  if (body.reassign) {
+  if (body.reassign === true) {
     const member = memberId && (await db.prepare('SELECT id FROM members WHERE id = ?1').bind(memberId).first())
     if (!member) return c.json({ error: '買った人を選んでください' }, 400)
     await db
@@ -476,7 +475,7 @@ app.post('/api/shopping/:id/buy', async (c) => {
       .bind(today, id, memberId, Date.now())
       .run()
   }
-  return c.json(await getBoard(db))
+  return c.json(await getBoard(db, today))
 })
 
 // 今日買った品を、まだ買っていないに戻す。同じ品名のまだの品があれば戻さない

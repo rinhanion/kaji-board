@@ -89,10 +89,12 @@ button { cursor: pointer; touch-action: manipulation; }
 }
 .btn:active, .chip:active, .icon-btn:active, .day-btn:active:not(:disabled), .fab:active, .del:active,
 .toast button:active, .me-list button:active, .edit-row button:active:not(:disabled),
-.shop:active, .me-points:active, .shop-row .box:active:not(:disabled), .shop-row .x:active:not(:disabled) {
+.me-points:active, .shop-row .box:active:not(:disabled), .shop-row .x:active:not(:disabled) {
   transform: scale(.9);
   transition-duration: 80ms;
 }
+/* 買い物メモの欄は幅が広いので、縮みを小さくする */
+.shop:active { transform: scale(.97); transition-duration: 80ms; }
 
 .screen {
   max-width: 560px;
@@ -527,7 +529,7 @@ dialog h3 { font: var(--text-subheading); color: var(--cobalt-700); margin: 0 0 
 /* 弾みを切り、色の変化だけにする */
 @media (prefers-reduced-motion: reduce) {
   *, *::before, *::after { animation: none !important; transition-property: background-color, color, opacity !important; }
-  .card:active, .btn:active, .chip:active, .icon-btn:active, .day-btn:active, .fab:active { transform: none; }
+  .card:active, .btn:active, .chip:active, .icon-btn:active, .day-btn:active, .fab:active, .shop:active, .me-points:active { transform: none; }
 }
 
 /* --- 買い物メモ --- */
