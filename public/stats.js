@@ -165,7 +165,8 @@ function renderTrend(data) {
 function renderPeople(data) {
   const rows = [...data.people]
   if (data.summary.unknown) rows.push({ name: 'だれか', count: data.summary.unknown, unknown: true })
-  const max = Math.max(1, ...rows.map((r) => r.count))
+  // 棒の長さは分担の数で比べる。「だれか」は 1 回 = 完了 1 件なので同じ物差しで入れる
+  const max = Math.max(1e-9, ...rows.map((r) => (r.unknown ? r.count : r.shareExact)))
   $('#people').replaceChildren(
     ...(rows.length
       ? rows.map((r) =>
@@ -176,9 +177,20 @@ function renderPeople(data) {
             h(
               'span',
               { class: 'hbar-track' },
-              h('span', { class: 'hbar-fill', style: `width: ${(r.count / max) * 100}%; --c: var(--who-${r.unknown ? 0 : r.color || 0})` }),
+              h('span', {
+                class: 'hbar-fill',
+                style: `width: ${((r.unknown ? r.count : r.shareExact) / max) * 100}%; --c: var(--who-${r.unknown ? 0 : r.color || 0})`,
+              }),
             ),
-            h('span', { class: 'hbar-num' }, `${r.count}回`),
+            // 右はしは、上に分担の数(件)、下にやった回数(回)。「だれか」は回数だけ
+            r.unknown
+              ? h('span', { class: 'hbar-num', 'aria-label': `${r.count}回` }, `${r.count}回`)
+              : h(
+                  'span',
+                  { class: 'hbar-num', 'aria-label': `${r.share}件、${r.count}回` },
+                  h('span', { class: 'hbar-share' }, `${r.share}件`),
+                  h('span', { class: 'hbar-count' }, `${r.count}回`),
+                ),
           ),
         )
       : [h('li', { class: 'hint' }, 'まだ完了した家事がありません')]),

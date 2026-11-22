@@ -603,6 +603,15 @@ const STATS_RANGES: Record<string, number | null> = { '7': 7, '30': 30, all: nul
 // 消された家族の写し(member_id 0)は、名前ごとに別の人として数える
 const DOER_KEY = 'd.member_id, CASE WHEN d.member_id = 0 THEN d.name END'
 
+// 分担の数。完了した家事 1 件を、記録されたやった人の数で分ける(消された家族も 1 人と数える)
+const SHARE = 'SUM(1.0 / (SELECT COUNT(*) FROM history_doers n WHERE n.history_id = d.history_id))'
+
+// 分担の数を小数第 1 位までに丸める。0 より大きいのに 0 になるときは 0.1 にする(やったのに 0 に見えないように)
+function roundShare(x: number) {
+  const r = Math.round(x * 10 + 1e-9) / 10
+  return x > 0 && r === 0 ? 0.1 : r
+}
+
 // history を期間で集計する。今日の分はまだ history に無いので入らない
 async function getStats(db: D1Database, days: number | null) {
   const to = boardDate() // この日は含めない
@@ -634,13 +643,14 @@ async function getStats(db: D1Database, days: number | null) {
          GROUP BY h.task_id ORDER BY t.id IS NULL, t.sort, h.task_id`,
       )
       .bind(from, to),
-    // やった人ごと。一緒にやった家事は、それぞれ 1 回と数える
+    // やった人ごと。回数は一緒にやった家事をそれぞれ 1 回と数え、分担の数は人数で分ける。並びは分担の数の多い順
+    // (ROUND は、小数のわずかなずれで同じ数の人の順が入れ替わらないようにするため)
     db
       .prepare(
-        `SELECT COALESCE(m.name, d.name) AS name, COALESCE(m.color, 0) AS color, COUNT(*) AS count
+        `SELECT COALESCE(m.name, d.name) AS name, COALESCE(m.color, 0) AS color, COUNT(*) AS count, ${SHARE} AS shareExact
          FROM history_doers d JOIN history h ON h.id = d.history_id LEFT JOIN members m ON m.id = d.member_id
          WHERE h.done_at IS NOT NULL AND ${range}
-         GROUP BY ${DOER_KEY} ORDER BY count DESC, m.sort IS NULL, m.sort, d.member_id`,
+         GROUP BY ${DOER_KEY} ORDER BY ROUND(${SHARE}, 9) DESC, m.sort IS NULL, m.sort, d.member_id`,
       )
       .bind(from, to),
     db
@@ -663,7 +673,10 @@ async function getStats(db: D1Database, days: number | null) {
       deleted: !!t.deleted,
       doers: (choreDoers.results as Row[]).filter((d) => d.taskId === t.id).map(({ name, color, count }) => ({ name, color, count })),
     })),
-    people: people.results,
+    people: (people.results as { name: string; color: number; count: number; shareExact: number }[]).map((p) => ({
+      ...p,
+      share: roundShare(p.shareExact),
+    })),
   }
 }
 
