@@ -53,7 +53,7 @@ npm run dev                      # http://localhost:8787
 ### テスト
 
 ```sh
-npm run check   # 型チェックとテストをまとめて走らせる(変更したら毎回これ)
+npm run check   # 型チェック・RDRA の地図とコードの突き合わせ・テストをまとめて走らせる(変更したら毎回これ)
 npm test        # テストだけ
 ```
 
@@ -98,7 +98,7 @@ npm run deploy                         # https://kaji-board.<あなたのサブ�
 
 ```
 .github/workflows/       CI(PR と main で npm run check)
-.claude/                 Claude Code のフック(決まりを機械的に守らせる)
+.claude/                 Claude Code のフック(決まりを機械的に守らせる)・役割ごとのサブエージェント・スキル
 CLAUDE.md                作業するときに守ること(流れ・本番反映・変えてはいけないもの)
 src/index.ts             API と Cron(Hono)
 public/                  画面(index.html, app.js, stats.html, stats.js, rewards.html, rewards.js, style.css, manifest, アイコン)
@@ -106,5 +106,8 @@ migrations/              D1 のスキーマと初期データ
 test/                    テスト(vitest。npm run check)
 vitest.config.ts         テストの設定
 scripts/make-icons.mjs   PNG アイコンを作る(依存なし。npm run icons)
+scripts/check-rdra.mjs   RDRA の地図とコードのずれを見る(依存なし。npm run check の中で走る)
+docs/rdra/               RDRA の地図(要件の整理)と、要件定義の差分
+docs/specs/              機能ごとの仕様と設計
 wrangler.jsonc           Workers の設定(D1・Cron・静的アセット)
 ```
