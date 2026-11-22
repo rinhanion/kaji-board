@@ -9,16 +9,19 @@
     "db:migrate:local": "wrangler d1 migrations apply kaji-board --local",
     "db:migrate:remote": "wrangler d1 migrations apply kaji-board --remote",
     "deploy": "wrangler deploy",
+    "lint": "biome ci --error-on-warnings .",
+    "format": "biome check --write .",
     "typecheck": "tsc --noEmit && tsc --noEmit -p test",
     "test": "vitest run",
     "check:rdra": "node scripts/check-rdra.mjs",
-    "check": "npm run typecheck && npm run check:rdra && npm run test",
+    "check": "npm run lint && npm run typecheck && npm run check:rdra && npm run test",
     "icons": "node scripts/make-icons.mjs"
   },
   "dependencies": {
     "hono": "^4.13.16"
   },
   "devDependencies": {
+    "@biomejs/biome": "2.6.8",
     "@cloudflare/vitest-plugin": "^1.5.0",
     "@cloudflare/workers-types": "^5.20261101.1",
     "typescript": "^7.0.2",

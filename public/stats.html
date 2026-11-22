@@ -29,9 +29,12 @@
 
     <!-- 期間 -->
     <div class="seg" role="radiogroup" aria-label="期間">
-      <button type="button" data-range="7" role="radio">7日</button>
-      <button type="button" data-range="30" role="radio">30日</button>
-      <button type="button" data-range="all" role="radio">ぜんぶ</button>
+      <!-- biome-ignore lint/a11y/useSemanticElements: 押しやすい大きさの切り替えボタンとして見せる -->
+      <button type="button" data-range="7" role="radio" aria-checked="false">7日</button>
+      <!-- biome-ignore lint/a11y/useSemanticElements: 押しやすい大きさの切り替えボタンとして見せる -->
+      <button type="button" data-range="30" role="radio" aria-checked="false">30日</button>
+      <!-- biome-ignore lint/a11y/useSemanticElements: 押しやすい大きさの切り替えボタンとして見せる -->
+      <button type="button" data-range="all" role="radio" aria-checked="false">ぜんぶ</button>
     </div>
 
     <p id="loading" class="hint">読み込み中…</p>

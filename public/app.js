@@ -339,7 +339,9 @@ function check(t) {
 
 function popCheck(id) {
   popId = id
-  setTimeout(() => popId === id && (popId = null), 600)
+  setTimeout(() => {
+    if (popId === id) popId = null
+  }, 600)
 }
 
 // doers: やった人 [{ id, name }](元に戻すときは前の人たち。だれもいなければ空)
@@ -367,7 +369,10 @@ function toggleThanks(t, on) {
     return
   }
   thanksPopId = on ? t.id : null
-  if (on) setTimeout(() => thanksPopId === t.id && (thanksPopId = null), 600)
+  if (on)
+    setTimeout(() => {
+      if (thanksPopId === t.id) thanksPopId = null
+    }, 600)
   mutate(
     (b) => {
       const x = b.tasks.find((y) => y.id === t.id)
@@ -995,7 +1000,11 @@ function moveChore(i, dir) {
   const ids = dailyTasks().map((t) => t.id)
   ;[ids[i], ids[i + dir]] = [ids[i + dir], ids[i]]
   editMutate(
-    (b) => ids.forEach((id, n) => (b.tasks.find((t) => t.id === id).sort = n + 1)),
+    (b) => {
+      ids.forEach((id, n) => {
+        b.tasks.find((t) => t.id === id).sort = n + 1
+      })
+    },
     'POST',
     '/api/tasks/reorder',
     { ids },
