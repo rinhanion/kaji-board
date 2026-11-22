@@ -89,7 +89,7 @@ Issue: #35
 2. 担当の名前は、家事の名前の上に小さく「担当 (色の点)たろう」と出す(「今日だけ」の札と同じ位置・大きさ)
 3. 自分の担当は、札を「あなたの担当」にしてコバルトで塗るだけにする。カードのふちは変えない(モックの案 A。2026-11-22 に比べて決めた)
 4. 完了したあとも、カードに担当の札を残す
-5. 設定では、毎日の家事の行の下の「担当」ボタンから、シートを開いて選ぶ。行の右に置くとスマホの幅で家事の名前が切れることがモックで分かったので、行の下に置く(家族の色えらびと同じ形)
+5. 設定では、毎日の家事の行の下の「担当」ボタンから、シートを開いて選ぶ。行の右に置くとスマホの幅で家事の名前が切れることがモックで分かったので、行の下に置く(家族の色えらびと同じ形)。どの家事のボタンかが分かるよう、毎日の家事を 1 つずつ枠で囲み、名前の欄・↑↓×・担当ボタンを同じ枠に入れる(モックの案 D。行の下に置くだけだと、下の家事のボタンにも見えたため)
 6. 担当を決めるのは設定だけ。ボードからは決めない
 7. 今回もモックで見た目を決めてから、設計に進む
 
@@ -98,3 +98,264 @@ Issue: #35
 ### 決めきれていないこと
 
 - なし
+
+## 設計
+
+### 1. データ
+
+`migrations/0007_task_owner.sql` を足す。当て済みの 0001〜0006 は書き換えない。
+
+```sql
+-- 毎日の家事の担当(家族 0〜1 人)。担当は家事についている決まりなので、毎朝のリセットでは外さない。
+-- 家族を消したら、外部キーの ON DELETE SET NULL で「担当なし」になる。
+-- 担当は目印なので history には写さない(記録には、やった人だけを残す)
+ALTER TABLE tasks ADD COLUMN owner_id INTEGER REFERENCES members(id) ON DELETE SET NULL;
+```
+
+- 列を `tasks` に足す(別テーブルにしない)。担当は 1 つの家事に 0〜1 人(条件「担当の数」)なので、列 1 つで数の決まりがそのまま守られる。別テーブル `task_owners (task_id PRIMARY KEY, member_id)` にする案もあるが、JOIN と消す処理が増えるだけなのでとらない
+- SQLite の `ADD COLUMN` は、既定値が NULL なら `REFERENCES` を付けられる。D1 は外部キーを効かせているので、家族を消すと `owner_id` が NULL になる(今の `task_doers` の `ON DELETE CASCADE` と同じしくみ。`DELETE /api/members/:id` のコメントに「担当は ON DELETE SET NULL で外れる」を足す)
+- 家事を消すと行ごと消えるので、担当も消える(決まりごと「消えるタイミング」)
+- 毎日の家事だけ、は API で守る(下の 2)。今日だけのタスクは毎朝消えるので、列は NULL のまま消える
+- `history` には列を足さない。`resetBoard()` の `INSERT INTO history (...) SELECT ...` は列を名前で並べているので、何も変えなくても `owner_id` は写らない(ここを `SELECT *` にしない)
+- `history` 系の行を消す処理は足さない
+- `scripts/check-rdra.mjs` は `ALTER TABLE tasks ADD COLUMN` をテーブルの付け外しとして数えないので、テーブルの数は変わらない(`tasks` はもう地図にある)
+
+### 2. API
+
+#### `/api/board` に混ぜる
+
+担当は家事の一部として、`GET /api/board` の `tasks` の各行に `owner` を足す。20 秒ごとの再読み込み・開き直したとき・ほかの操作の返り値に、そのまま乗る。別のエンドポイントで読みにいく案は、ポーリングが 2 本になるのでとらない(#30 と同じ判断)。
+
+`getBoard()` の家事の SELECT を、家族を LEFT JOIN する形に変える:
+
+```sql
+SELECT t.id, t.title, t.kind, t.sort, t.done_at AS doneAt, t.created_at AS createdAt,
+  o.id AS ownerId, o.name AS ownerName, o.color AS ownerColor
+FROM tasks t LEFT JOIN members o ON o.id = t.owner_id
+ORDER BY t.kind = 'once', t.sort, t.id
+```
+
+返す前に `ownerId` `ownerName` `ownerColor` を外し、今ある `personOf()` で 1 つにまとめてから `withDoers()` に渡す(`withDoers` は行を `...t` で広げるので、先にまとめないと 3 つの列がそのまま出てしまう)。
+
+```ts
+tasks: {
+  // 今までの項目(id, title, kind, sort, doneAt, createdAt, doers, thanks)に足す
+  owner: { id: number; name: string; color: number } | null // 担当。今の家族の名前と色。今日だけのタスクはいつも null
+}[]
+```
+
+- 名前と色は毎回 `members` から読むので、家族の名前・色を変えるとすぐ札も変わる(決まりごと「家族の名前・色を変えたとき」)
+- `getHistory()`(`GET /api/history/:date`)は変えない。過去の日の家事には `owner` が無い(記録に担当を写さないため)
+- 並び順は変えない(担当の家事を上に寄せない)
+
+#### 足すエンドポイント
+
+UC「家事の担当を決める」と「家事の担当を外す」に 1 本ずつ。どちらも成功したら `getBoard()` を返す。
+
+| メソッド・パス | 受け取る値 | すること |
+| --- | --- | --- |
+| `POST /api/tasks/:id/owner` | `{ memberId }` | その毎日の家事の担当を、その家族にする。担当がほかの人なら入れ替わる(担当は 1 人だけ)。同じ人をもう一度送っても結果は同じ |
+| `DELETE /api/tasks/:id/owner` | なし | 担当を外す(`owner_id = NULL`)。もともと担当がいなくても 200 |
+
+`POST` の流れ:
+
+1. `SELECT kind FROM tasks WHERE id = ?1` → 無ければ 404、`kind` が `once` なら 400
+2. `memberId` が正の整数で、`members` にいなければ 400
+3. `UPDATE tasks SET owner_id = (SELECT id FROM members WHERE id = ?2) WHERE id = ?1 AND kind = 'daily'`
+   - 家族の id は副問い合わせで入れる(買い物メモの `added_by` と同じ)。2 と 3 のあいだにほかの端末でその家族が消されても、外部キーの違反で 500 にならず、担当なしになるだけ
+
+`DELETE` は `UPDATE tasks SET owner_id = NULL WHERE id = ?1` だけ。無い id・今日だけのタスクでも 200(今の `DELETE /api/tasks/:id` と同じく、外したい結果にはなっている)。
+
+`memberId` の読み方は、今ある `memberIdOf()`(買い物メモで使っている、正の整数でなければ null)を使い回す。型の名前が `ShoppingBody` なので、引数の型を `{ memberId?: unknown }` に広げる。
+
+#### エラー
+
+| 場面 | 状態コード | `error` の文言 |
+| --- | --- | --- |
+| `POST`: その id の家事が無い(ほかの端末で消された) | 404 | `家事が見つかりません` |
+| `POST`: 今日だけのタスク | 400 | `担当は毎日の家事にだけ付けられます`(画面にはボタンが無いので、ふつうは起きない) |
+| `POST`: `memberId` が無い・数でない・いない家族 | 400 | `担当にする家族を選んでください` |
+
+画面はエラーのとき、今の `mutate` どおり `alert` して読み直す。
+
+#### 案: 新しいパスにするか、`PATCH /api/tasks/:id` に混ぜるか
+
+| 案 | 中身 | 判断 |
+| --- | --- | --- |
+| A. `POST` / `DELETE /api/tasks/:id/owner`(推す) | 決める・外すを別のパスにする | UC 1 つに API 1 本で地図とそろう。家事の `/check` `/uncheck`、買い物の `/buy` `/unbuy` と同じく、2 回送っても結果が同じ。「毎日の家事だけ」の確かめを、名前の変更と混ぜずに書ける |
+| B. `PATCH /api/tasks/:id` に `ownerId` を足す | `PATCH /api/members/:id` の名前・色のように、どちらか(または両方)を受ける | パスは増えないが、今の `PATCH` は `title` が無いと 400 なので、そこを書き直すことになる。名前の変更(今日だけのタスクにもできる)と担当(毎日の家事だけ)で決まりがちがい、分かれ道が増える |
+
+A にする。
+
+### 3. 画面
+
+#### `public/index.html`
+
+担当のシートを足す(`#buyer-dialog` の下)。`dialog.sheet` なので、外をタップで閉じる・`data-close` は今の仕組みのまま効く。設定(`#edit-dialog`、全画面)の上に重ねて開く(`showModal()` は重ねられる)。
+
+```html
+<!-- だれの担当?(設定の毎日の家事の「担当」ボタンで開く。1 人だけ選ぶ) -->
+<dialog id="owner-dialog" class="sheet">
+  <h2>だれの 担当?</h2>
+  <p id="owner-task" class="hint"></p>
+  <div id="owner-list" class="me-list owner-list"></div>
+  <p class="hint">担当でない人も完了にできます。ポイントはやった人に入ります</p>
+  <div class="sheet-actions">
+    <button type="button" class="btn" data-close>とじる</button>
+  </div>
+</dialog>
+```
+
+- 下の一言(「担当でない人も完了にできます…」)はモックにあるが、仕様には書かれていない。下の「仕様への問い」1 を参照
+
+#### `public/app.js`
+
+ボードのカード(`taskItem(t)`):
+
+- 札を `span.card-tags` にまとめて、家事の名前の上に置く(モックの形)。札が 1 つも無いときは `card-tags` を作らない(担当のない家事は今までどおりの見た目)
+  - 今日だけのタスク: 今までどおり `span.tag` 「今日だけ」
+  - 担当: `!pastDate && t.owner` のときだけ出す(過去の日の記録には `owner` が無いが、念のため `pastDate` でも見る)
+    - `t.owner.id === getMe()` なら `span.tag.owner.mine` に「あなたの担当」(色の点は出さない。モックのとおり)
+    - それ以外(ほかの人・名前を選んでいない端末)は `span.tag.owner` に `'担当 '`, `dot(t.owner.color)`, `t.owner.name`
+  - 完了したカードにも同じ札を出す(決めたこと 4)。カードのふち(`.card`)には何も足さない(決めたこと 3。モックの `.variant-b` は使わない)
+- 完了・長押し・ありがとう・並び順(`sortedTasks()`)は変えない。「だれが やった?」の初めの選び方(未完了なら自分)も変えない
+
+設定の毎日の家事(`renderEdit()`):
+
+- 1 つの家事を `li.edit-chore` にし、その中に今の `div.edit-row`(名前・↑・↓・×)と、家族が 1 人以上いるときだけ `div.owner-line` を入れる(家族の `li.edit-member` と同じ 2 段の形)
+
+```
+li.edit-chore                  ← 案 D で、家事ごとに枠で囲む
+├ div.edit-row        今までの input・↑・↓・×(中身は変えない)
+└ div.owner-line      board.members.length > 0 のときだけ
+   └ button.owner-btn[.unset]   onclick: openOwner(t.id)
+        担当あり: '担当 ', dot(color), 名前   aria-label「(家事の名前)の担当: (名前)」
+        担当なし: 「担当を決める」(.unset で点線のふち)  aria-label「(家事の名前)の担当を決める」
+```
+
+- 今の `li` に付いている `class: 'edit-row'` は、中の `div` に移す(`li` は `edit-chore` になる)
+- 今日だけのタスクは `dailyTasks()` に入らないので、ボタンも出ない(今のまま)
+
+担当のシート:
+
+- `let ownerTaskId = null`(「だれの担当?」で選んでいる家事)を、ほかの状態の変数と並べて足す
+- `openOwner(id)`: `board.tasks` からその家事を探し、`#owner-task` に家事の名前、`#owner-list` に次のボタンを並べて `showModal()`
+  - はじめに `button.none` 「なし」、そのあと家族の並び順に家族のボタン(`svgCheck()`, `dot(m.color)`, `m.name`)。`#who-list` と同じくチェックの印を先に入れ、今の担当(担当なしなら「なし」)に `.on` と `aria-pressed="true"` を付ける
+- `close` イベントで `ownerTaskId = null`(`#buyer-dialog` と同じ)
+- 名前をタップ → `chooseOwner(m)`: シートを閉じ、今の担当と同じ人なら何もしない。ちがえば
+  `editMutate(() => { board の家事の owner = { id, name, color } }, 'POST', `/api/tasks/${id}/owner`, { memberId: m.id })`
+- 「なし」をタップ → シートを閉じ、担当がいなければ何もしない。いれば
+  `editMutate(() => { board の家事の owner = null }, 'DELETE', `/api/tasks/${id}/owner`)`
+- 先に描く処理は、引数で受ける `view()` ではなく `board` を直接書き換える(過去の日を見ているときは `view()` が過去の記録になるため。今の `recolorMember` と同じ書き方)。`editMutate` のあとに `renderEdit()` が走るので、設定のボタンも変わる
+- 「元に戻す」のトーストは出さない(シートからもう一度選び直せるため)
+
+家族を消す・名前や色を変える・家事の名前を変える・並べ替える: 画面のコードは変えない。サーバーが返す `owner` をそのまま描くので、消した家族の担当は「担当を決める」に戻り、名前・色の変更は札にも出る。
+
+#### `public/style.css`
+
+モックの CSS のうち、次を移す(色・大きさは `:root` のトークンだけで書かれている)。
+
+- ボードの札
+  - `.card-tags { display: flex; flex-wrap: wrap; gap: 6px; }`
+  - `.tag.owner .dot { margin-right: .25em; }`
+  - `.tag.owner.mine { background: var(--cobalt-500); color: var(--on-cobalt); }`
+- 設定の担当ボタン
+  - `.owner-line { display: flex; }`(案 D なので左の余白は付けない。モックの `.group-box .owner-line { padding-left: 0; }` と同じ見え方)
+  - `.owner-line .owner-btn` と `.owner-line .owner-btn.unset`(モックのまま)
+- 家事ごとのまとまり(案 D: 家事ごとに囲む。2026-11-22 本人が選んだ)。家族の一覧も `.edit-list` を使うので、毎日の家事の一覧 `#edit-chores` にだけ効かせる:
+
+```css
+/* 毎日の家事: 名前の行と「担当」ボタンを、家事ごとに枠で囲む */
+#edit-chores { gap: var(--space-3); }
+.edit-chore {
+  display: flex; flex-direction: column; gap: var(--space-2);
+  padding: var(--space-3);
+  border: 1px solid var(--cobalt-200); border-radius: var(--radius-lg);
+  background: var(--paper-raised);
+}
+```
+
+  - モックの素の `.edit-chore { gap: 6px }` と、案 C の `.group-line` は移さない
+  - 家族が 0 人のときは、枠の中が名前の行だけになる
+- 担当のシート: `.owner-list button` `.owner-list button svg` `.owner-list button.on svg` `.owner-list .none`(モックのまま。`.who-list` と同じ形)
+- 押すと縮んで弾む共通の選択子(86〜92 行目)に `.owner-line .owner-btn` を足す(シートのボタンは `.me-list button` に入るので足さなくてよい)
+- 移さないもの: `.edit-row .owner-btn`(行の右に置く案のもの)、`.variant-b`、`.group-line`、`.mock-*`、`body` `main.screen` の上書き
+
+### 4. 日付と反映
+
+- 担当は日付に結びつかない。`boardDate()` も `board_date` も見ない
+- 毎朝 4:00 のリセット・その日の最初のアクセスでの追いつき・「今すぐリセット」は、どれも `resetBoard()` を通る。`resetBoard()` は毎日の家事の `done_at` を NULL にするだけで、`owner_id` には触れないので、担当は残る。`resetBoard()` のコードは変えない(コメントに「担当はそのまま」を足す程度)
+- 記録への写しは列を名前で並べているので、担当は写らない
+- ほかの端末の操作: `/api/board` の 20 秒ごとの再読み込みと、`visibilitychange` で `owner` が変わり、`render()` でカードの札が変わる
+  - 設定を開いたままのときは、今の名前や色と同じく、設定の中は描き直さない(開き直したとき・設定で何か操作したときに新しくなる)。今の作りに合わせ、今回は変えない
+- 過去の日を見ている間は札を出さない。設定で担当を変えると `board` が変わり、今日に戻ったときに出る
+
+### 5. テストの方針
+
+新しく `test/owner.test.ts` を作る。`test/helpers.ts` の `Task` 型に `owner?: Who | null` を足す。`seed()` は `tasks` の行を作り直すので、担当は毎回 NULL から始まり、変えなくてよい。家族は seed のママ(1)・パパ(2)を使う(仕様の「たろう」はママ・パパに読み替える)。「日付が変わった」は `board.test.ts` と同じ `rewindBoardDate` をこのファイルにも書いてつくる。
+
+| 仕様の「確かめ方」・決まりごと | `test/owner.test.ts` で確かめること |
+| --- | --- |
+| 担当を決めると、ボードの家事に出る | `POST /api/tasks/1/owner { memberId: 1 }` の返り値と `GET /api/board` で、洗濯の `owner` が `{ id: 1, name: 'ママ', color: 1 }`。食器洗いは `null` |
+| 「なし」で外れる | 決めたあと `DELETE /api/tasks/1/owner` で `owner` が `null`。担当がいないときの `DELETE`、無い id の `DELETE` も 200 |
+| 別の人を選ぶと入れ替わる(1 人だけ) | ママのあとパパを送ると `owner` がパパ。同じ人をもう一度送っても 200 でそのまま |
+| 今日だけのタスクには付けられない | `POST /api/tasks { kind: 'once' }` で足した家事への `POST .../owner` は 400(文言も見る)で、`owner` は `null` |
+| 決められないとき | 無い家事は 404、`memberId` なし・`99`(いない家族)・文字列は 400 で、`owner` は変わらない |
+| 担当でない人が完了にできる・ポイントはやった人 | 担当ママの洗濯をパパが `/check` → 完了でやった人はパパ。`points` のパパの `balance` が 1 増え、ママは変わらない |
+| 担当の人がやっても同じ数え方 | 担当ママの洗濯をママが `/check` → ママが 1 増える(担当のない食器洗いをやったときと同じ増え方) |
+| 完了しても担当は残る | `/check` のあとも `owner` がそのまま。`/uncheck`、長押しの `reassign` のあとも同じ |
+| リセットで外れない | `rewindBoardDate(daysAgo(1))` のあとの最初の `GET /api/board`、`rewindBoardDate` のあとの `runCron()`、`POST /api/reset`、のどれのあとも `owner` が残る |
+| 記録に担当を写さない | 上のリセットのあと、`GET /api/history/:date` の家事に `owner` が無い(`undefined`)。`PRAGMA table_info(history)` に `owner_id` が無い |
+| 家族を消すと担当なし | ママを担当にしてから `DELETE /api/members/1` → 返り値の `owner` が `null`。DB の `tasks.owner_id` も NULL |
+| 名前・色を変えると札も変わる | `PATCH /api/members/1 { name: 'はは', color: 3 }` のあと `owner` が `{ id: 1, name: 'はは', color: 3 }` |
+| 家事の名前を変えても・並べ替えても担当はそのまま | `PATCH /api/tasks/1 { title }`、`POST /api/tasks/reorder { ids: [2, 1] }` のあとも `owner` がママ |
+| 集計は今までどおり | 担当ママの洗濯をパパが完了 → 日付を戻してリセット → `GET /api/stats?range=7` の `chores` の洗濯の `doers` がパパ 1 回(担当は数えに入らない) |
+
+画面だけの項目(設定のボタンの文言と点線、シートの印、「あなたの担当」の色、ママの端末・名前なしの端末での見え方、過去の日で札が出ないこと、家族 0 人でボタンが出ないこと、今日だけのタスクにボタンが無いこと、別の端末から 20 秒以内に出ること、家事ごとの枠)は、今の `test/` に画面のテストが無いので、実装のあと `npm run dev` で 2 つのタブを並べ、名前を変えて手で確かめる。
+
+`npm run check` の中の `check:rdra` は、下の 7 の地図の直しをしないと落ちる(API が 2 本増えるため)。
+
+### 6. 本番への反映
+
+マイグレーションを足すので、マージしたあと main で `npm run db:migrate:remote` → `npm run deploy` の順にする。逆にすると、新しいコードが無い `tasks.owner_id` を読みにいき、`/api/board` が落ちて画面ごと出なくなる。
+
+### 7. RDRA の地図を畳む
+
+スキル `.claude/skills/rdra/SKILL.md` の「B. 地図を畳む」の手順で、`docs/rdra/6-要件定義-35.md` の差分を 1〜5 に入れる。この機能の PR の中で行う。差分の文書とできたものがちがえば、できたほうを正にする(今回は API の名前とテーブルの列が、差分の文書に無かった分)。
+
+| ファイル | 直すこと |
+| --- | --- |
+| `docs/rdra/1-システム価値.md` | システムコンテキストの矢印に「担当」を足す(「家事にチェック・ありがとう・担当…」と「今日の家事(自分の担当)…」)。アクター「家族」の下に、担当があっても操作は同じなのでアクターは分けない、と 1 行。外部システムの下に「LINE はお試しのあいだ外部システムにしない(親が手で送る)」と 1 行。要求モデルに要求 H と H1〜H3 を足す(図: `w1 --> h`、`h --> h1 & h2 & h3`、`h1 --> f12`(機能「家事の担当」を足す)、`h3 --> f7`、`h2` は機能につながらず「親が LINE で送る(システムの外)」と注記。表に H の行)。「まだかなえていない要求」の「息子にも家事に加わってほしい」を消し、代わりに「H2 の出番を自動で届ける」(今は親が手で送る。6 の「次に考えること」)を置く |
+| `docs/rdra/2-外部環境.md` | ビジネスコンテキストに LINE(システムの外)と「親が出番の日にリンクを送る」を足し、「息子にも加わってほしいが、まだできていない」の行を「お試しで、息子にお風呂掃除を任せている(#35)」に直す。BUC の表に「家事を任せる」の 8 行(6 の 3 節の表)を足す。業務フロー「お風呂掃除の日」を節として足す |
+| `docs/rdra/3-境界.md` | 画面の表に「担当のシート \| `#owner-dialog` \| 毎日の家事の担当を選ぶ・外す」を足し、「設定」の中身に「毎日の家事の担当」を足す。UC 複合図に「家事を任せる」(家族・設定・担当のシート・ボード → UC「家事の担当を決める」「家事の担当を外す」「今日のボードを見る」→ 情報「家事」「家族」)を足す。UC の一覧に下の 2 行を足し、「家族を消す」の情報に「家事(担当が外れる)」を足す。「API 26 本」を「API 28 本」に直す |
+| `docs/rdra/4-システム.md` | 情報モデルの「家事」の説明を「今日のボードに並ぶ家事。やった人と、毎日の家事の担当(家族 0〜1 人)も含む」にし、テーブルの列に `tasks`(`owner_id`)と書く。「家事の記録」に「担当は写さない」。ER 図に `member \|o--o{ task : "担当"`。家族を消したときの箇条に「家事の担当は外れる」。状態モデルは変えず、「担当は状態にしない(担当の有無で、できる UC が変わらないため)」と 1 行。条件の表に「担当は目印」「担当の数」「家族を消したとき(担当)」「担当が外れるとき(リセットでは外れない。なしにした・家族を消した・家事を消したときだけ)」を足し、「ポイントの数え方」に「担当の家事も同じ」と足す。バリエーション「家事の種類」の「何が変わるか」に「担当を付けられるのは毎日の家事だけ」と足す |
+| `docs/rdra/5-気づき.md` | C の 11(家族を家事に巻き込む UC が無い)に「#35 で担当を足した」と書き添える。6 の 8 節の気づき 13〜15 を、C の表の続きに写す |
+| `docs/rdra/6-要件定義-35.md` | 先頭に「(地図に畳んだ: #<PR 番号>)」と書き足す。中身は消さない |
+
+UC の一覧に足す行(BUC は新しい「家事を任せる」。表の「家事に報いる」の上あたりに置く):
+
+```markdown
+| 家事を任せる | 家事の担当を決める | 設定(担当のシート) | `POST /api/tasks/:id/owner` | 家事、家族 |
+| | 家事の担当を外す | 設定(担当のシートの「なし」) | `DELETE /api/tasks/:id/owner` | 家事 |
+```
+
+畳んだら `npm run check:rdra` で「API 28 本」と出ることを確かめる。
+
+### 8. 変更するファイル
+
+| ファイル | 変更 |
+| --- | --- |
+| `migrations/0007_task_owner.sql` | 新しく作る(`tasks.owner_id`) |
+| `src/index.ts` | `getBoard()` の家事の SELECT に担当を JOIN し `owner` を返す。`POST` / `DELETE /api/tasks/:id/owner`。`memberIdOf()` の引数の型を広げる。`resetBoard()` と `DELETE /api/members/:id` はコメントだけ |
+| `public/index.html` | `#owner-dialog` を足す |
+| `public/app.js` | `taskItem()` の札(`card-tags`・担当・あなたの担当)、`renderEdit()` の `li.edit-chore` と担当ボタン、`openOwner` / `chooseOwner`(「なし」も)、`ownerTaskId` |
+| `public/style.css` | `.card-tags` `.tag.owner` `.tag.owner.mine`、`.owner-line` `.owner-btn`、案 D の `#edit-chores` `.edit-chore`、`.owner-list`、弾む選択子に `.owner-line .owner-btn` |
+| `test/helpers.ts` | `Task` 型に `owner` |
+| `test/owner.test.ts` | 新しく作る |
+| `docs/rdra/1〜6` | 上の 7 のとおり |
+| `README.md` | 「できること」に担当の 1 行(設定で毎日の家事に担当を 1 人決められる。担当は目印で、だれがやってもやった人のポイント)。「しくみ」に 1 行(`tasks.owner_id`。リセットでは外さず、記録には写さない。家族を消すと外れる)。「テスト」の確かめることに「家事の担当」を足す |
+
+### 仕様への問い
+
+1. **担当のシートの下の一言**: モックのシートには「担当でない人も完了にできます。ポイントはやった人に入ります」と出ているが、仕様の「できること」には書かれていない。設計では、モックのとおり出す形で書いた(担当を決める親が、担当は目印だと分かるように)。出さないなら、`index.html` から 1 行消すだけ
+2. **設定の家事ごとの枠**: 仕様の「できること」は「行の下にもう 1 段」まで。家事ごとに枠で囲む(案 D)は本体があとで仕様に足すと聞いたので、設計は案 D で書いた
