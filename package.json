@@ -11,7 +11,8 @@
     "deploy": "wrangler deploy",
     "typecheck": "tsc --noEmit && tsc --noEmit -p test",
     "test": "vitest run",
-    "check": "npm run typecheck && npm run test",
+    "check:rdra": "node scripts/check-rdra.mjs",
+    "check": "npm run typecheck && npm run check:rdra && npm run test",
     "icons": "node scripts/make-icons.mjs"
   },
   "dependencies": {

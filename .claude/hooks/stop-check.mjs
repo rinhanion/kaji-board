@@ -7,8 +7,9 @@ const input = await readInput()
 // 直前にこのフックで止めて、直したあとの 2 回目なら止めない(止め続けるのを防ぐ)
 if (input.stop_hook_active) process.exit(0)
 
-// チェックの対象になるファイル。文書だけの変更では走らせない
-const CODE = /^(src|test|public|migrations)\/|^(package(-lock)?\.json|tsconfig\.json|vitest\.config\.ts|wrangler\.jsonc)$/
+// チェックの対象になるファイル。文書だけの変更では走らせない(RDRA の地図はコードと突き合わせるので対象にする)
+// 日本語のファイル名は、git が "docs/rdra/\343..." のように引用符つきで出すので、先頭の " も許す
+const CODE = /^"?(src|test|public|migrations|scripts|docs\/rdra)\/|^(package(-lock)?\.json|tsconfig\.json|vitest\.config\.ts|wrangler\.jsonc)$/
 
 // まだ main に入っていない変更(コミット済みと、作業中の両方)
 const committed = git('diff', '--name-only', 'origin/main...HEAD') ?? ''

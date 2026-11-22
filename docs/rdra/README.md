@@ -43,6 +43,14 @@ Issue: #33
 - 図は Mermaid で書いてある。GitHub や Obsidian ではそのまま図になる
 - 各ファイルの終わりの「つながり」の表で、ほかの視点の要素とのつながりを書いている
 
+## 地図を今のシステムと合わせる
+
+- 進め方(要件定義・地図を畳む)は、スキル `.claude/skills/rdra/SKILL.md` にある
+- `npm run check` の中で `scripts/check-rdra.mjs` が走る。次のずれがあると落ちる
+  - `src/index.ts` の API と、[3-境界.md](3-境界.md) の「UC の一覧」の API が合わない
+  - `migrations/` のテーブルが、[4-システム.md](4-システム.md) の「情報モデル」に無い
+- 条件・状態・BUC のずれは機械では見られないので、`reviewer` が見る
+
 ## 参考
 
 - RDRA 公式サイト: https://www.rdra.jp/

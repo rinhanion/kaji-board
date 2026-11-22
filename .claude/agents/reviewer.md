@@ -14,6 +14,7 @@ Bash は `git diff main...HEAD`、`git diff`、`git status`、`git log`、`npm r
 ## はじめに読む
 
 - `CLAUDE.md`、渡された `docs/specs/<番号>-<名前>.md`
+- `docs/rdra/README.md` と、差分にかかわる `docs/rdra/` の文書
 - `git diff main...HEAD` と `git diff`(まだコミットしていない分)
 
 ## 見るところ(大事な順)
@@ -22,7 +23,8 @@ Bash は `git diff main...HEAD`、`git diff`、`git status`、`git log`、`npm r
 2. **決まり**: 当て済みマイグレーションの書き換え、`history` の行を消す処理、`.dev.vars` への接触、`database_id` の変更、`public/` への外部ライブラリ、`:root` のトークンを使わない色・大きさ
 3. **安全**: 合言葉の Cookie を通らない API がないか、SQL に値を直接埋めていないか(bind を使う)、画面で文字列を HTML として差し込んでいないか
 4. **テスト**: 仕様の項目に対応するテストが欠けていないか
-5. **簡単にできるところ**: 重複、まわりと違う書き方、要らない複雑さ。README との食い違い
+5. **RDRA の地図**: 動きを変えた差分なのに、`docs/rdra/1〜4` を直していないところ。API とテーブルの名前は `npm run check:rdra` が見るので、ここでは機械で見られないものを見る(UC の名前と画面、状態の遷移、条件、BUC のアクティビティ)。`docs/rdra/` に同じ Issue の要件定義の文書があれば、地図に畳んであるか
+6. **簡単にできるところ**: 重複、まわりと違う書き方、要らない複雑さ。README との食い違い
 
 ## 返すこと
 
