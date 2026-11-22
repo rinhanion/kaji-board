@@ -159,7 +159,11 @@ async function mutate(optimistic, method, path, body) {
     setOffline(false)
     if (v === version) apply(data)
     // 過去の日の操作ではボード(ポイント)が返ってこないので、読み直す
-    if (data.past) api('GET', '/api/board').then((b) => v === version && apply(b), () => {})
+    if (data.past)
+      api('GET', '/api/board').then(
+        (b) => v === version && apply(b),
+        () => {},
+      )
     return data
   } catch (e) {
     if (e instanceof Unauthorized) return null
@@ -205,7 +209,15 @@ function sortedTasks() {
   const undone = viewTasks().filter((t) => !t.doneAt)
   const done = viewTasks().filter((t) => t.doneAt)
   // 未完了: 毎日の家事(並び順) → 今日だけ(追加順)。完了: 終わった順
-  undone.sort((a, b) => (a.kind === b.kind ? (a.kind === 'daily' ? a.sort - b.sort : a.createdAt - b.createdAt) : a.kind === 'daily' ? -1 : 1))
+  undone.sort((a, b) =>
+    a.kind === b.kind
+      ? a.kind === 'daily'
+        ? a.sort - b.sort
+        : a.createdAt - b.createdAt
+      : a.kind === 'daily'
+        ? -1
+        : 1,
+  )
   done.sort((a, b) => a.doneAt - b.doneAt)
   return [...undone, ...done]
 }
@@ -244,7 +256,9 @@ function render() {
 
   // 名前の下に、自分の使えるポイント。名前を選んでいない端末では、ごほうびへの入口だけ
   const mine = me && board.points.find((p) => p.id === me.id)
-  $('#me-points-text').replaceChildren(...(mine ? [h('span', { class: 'num' }, String(mine.balance)), 'pt'] : ['ごほうび']))
+  $('#me-points-text').replaceChildren(
+    ...(mine ? [h('span', { class: 'num' }, String(mine.balance)), 'pt'] : ['ごほうび']),
+  )
 
   renderList()
   renderShop()
@@ -300,14 +314,23 @@ function taskItem(t) {
       h('span', { class: 'card-title' }, t.title),
       meta ? h('span', { class: 'card-meta' }, meta) : null,
       done && t.thanks.length
-        ? h('span', { class: 'card-thanks' }, 'ありがとう ', t.thanks.flatMap((d, i) => [i ? '・' : '', dot(d.color), d.name]))
+        ? h(
+            'span',
+            { class: 'card-thanks' },
+            'ありがとう ',
+            t.thanks.flatMap((d, i) => [i ? '・' : '', dot(d.color), d.name]),
+          )
         : null,
     ),
   )
   onLongPress(card, () => openWho(t.id))
   const del =
     t.kind === 'once' && !pastDate
-      ? h('button', { type: 'button', class: 'del', 'aria-label': `${t.title}を削除`, onclick: () => removeOnce(t) }, '×')
+      ? h(
+          'button',
+          { type: 'button', class: 'del', 'aria-label': `${t.title}を削除`, onclick: () => removeOnce(t) },
+          '×',
+        )
       : null
   const thanks = canThank
     ? h(
@@ -322,7 +345,13 @@ function taskItem(t) {
         'ありがとう',
       )
     : null
-  return h('li', { class: `item${del ? ' has-del' : ''}${thanks ? ' has-thanks' : ''}`, 'data-id': String(t.id) }, card, thanks, del)
+  return h(
+    'li',
+    { class: `item${del ? ' has-del' : ''}${thanks ? ' has-thanks' : ''}`, 'data-id': String(t.id) },
+    card,
+    thanks,
+    del,
+  )
 }
 
 // ---------- 操作 ----------
@@ -414,7 +443,12 @@ function doAssign(id, doers, { toast = true } = {}) {
     (b) => {
       const x = b.tasks.find((y) => y.id === id)
       // やった人になった人の「ありがとう」は消える(サーバーと同じ)
-      if (x) Object.assign(x, { doneAt: x.doneAt ?? now, doers, thanks: x.thanks.filter((d) => !doers.some((y) => y.id === d.id)) })
+      if (x)
+        Object.assign(x, {
+          doneAt: x.doneAt ?? now,
+          doers,
+          thanks: x.thanks.filter((d) => !doers.some((y) => y.id === d.id)),
+        })
     },
     'POST',
     `${taskBase()}/${id}/check`,
@@ -504,7 +538,9 @@ function renderWhoList() {
 
 $('#who-ok').addEventListener('click', () => {
   const id = whoTaskId
-  const doers = board.members.filter((m) => whoPicked.has(m.id)).map((m) => ({ id: m.id, name: m.name, color: m.color }))
+  const doers = board.members
+    .filter((m) => whoPicked.has(m.id))
+    .map((m) => ({ id: m.id, name: m.name, color: m.color }))
   $('#who-dialog').close()
   if (id != null && doers.length) doAssign(id, doers)
 })
@@ -612,7 +648,12 @@ function shopRow(s) {
       },
       svgCheck(),
     ),
-    h('span', { class: 'name' }, h('span', { class: 'label' }, s.name), by.length ? h('span', { class: 'by' }, by) : null),
+    h(
+      'span',
+      { class: 'name' },
+      h('span', { class: 'label' }, s.name),
+      by.length ? h('span', { class: 'by' }, by) : null,
+    ),
     bought
       ? null
       : h(
@@ -738,7 +779,12 @@ function openBuyer(id) {
   $('#buyer-list').replaceChildren(
     ...(board.members.length
       ? board.members.map((m) =>
-          h('button', { type: 'button', class: m.id === current ? 'on' : '', onclick: () => chooseBuyer(m) }, dot(m.color), m.name),
+          h(
+            'button',
+            { type: 'button', class: m.id === current ? 'on' : '', onclick: () => chooseBuyer(m) },
+            dot(m.color),
+            m.name,
+          ),
         )
       : [h('p', { class: 'hint' }, 'まだ だれもいません。右上の「私は…」から名前を追加してください')]),
   )
@@ -871,7 +917,12 @@ function renderMeList() {
   }
   list.replaceChildren(
     ...board.members.map((m) =>
-      h('button', { type: 'button', class: m.id === meId ? 'on' : '', onclick: () => chooseMe(m) }, dot(m.color), m.name),
+      h(
+        'button',
+        { type: 'button', class: m.id === meId ? 'on' : '', onclick: () => chooseMe(m) },
+        dot(m.color),
+        m.name,
+      ),
     ),
   )
 }
@@ -927,7 +978,11 @@ function renderEdit() {
           onkeydown: (e) => e.key === 'Enter' && e.target.blur(),
         }),
         h('button', { type: 'button', 'aria-label': '上へ', disabled: i === 0, onclick: () => moveChore(i, -1) }, '↑'),
-        h('button', { type: 'button', 'aria-label': '下へ', disabled: i === chores.length - 1, onclick: () => moveChore(i, 1) }, '↓'),
+        h(
+          'button',
+          { type: 'button', 'aria-label': '下へ', disabled: i === chores.length - 1, onclick: () => moveChore(i, 1) },
+          '↓',
+        ),
         h('button', { type: 'button', class: 'x', 'aria-label': '削除', onclick: () => deleteChore(t) }, '×'),
       ),
     ),

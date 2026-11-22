@@ -81,12 +81,18 @@ function render() {
               'p',
               { class: 'reward-yen' },
               h('span', {}, yen(p.balance, rate)),
-              h('button', { type: 'button', class: 'btn primary', disabled: p.balance < 1, onclick: () => openUse(p) }, '使う'),
+              h(
+                'button',
+                { type: 'button', class: 'btn primary', disabled: p.balance < 1, onclick: () => openUse(p) },
+                '使う',
+              ),
             ),
             h(
               'p',
               { class: 'reward-sub' },
-              [`今月 +${p.month}`, `家事 ${p.chores}`, `ありがとう ${p.thanks}`, p.used ? `使った ${p.used}` : null].filter(Boolean).join(' ・ '),
+              [`今月 +${p.month}`, `家事 ${p.chores}`, `ありがとう ${p.thanks}`, p.used ? `使った ${p.used}` : null]
+                .filter(Boolean)
+                .join(' ・ '),
             ),
           ),
         )
@@ -102,7 +108,11 @@ function render() {
               'span',
               { class: 'use-body' },
               h('span', { class: 'use-main' }, dot(u.color), `${u.name} · ${u.points} ポイント`),
-              h('span', { class: 'use-meta' }, `${shortDate(u.date)} · ${yen(u.points, u.yenPerPoint)}${u.canceled ? ' · 取り消し済み' : ''}`),
+              h(
+                'span',
+                { class: 'use-meta' },
+                `${shortDate(u.date)} · ${yen(u.points, u.yenPerPoint)}${u.canceled ? ' · 取り消し済み' : ''}`,
+              ),
             ),
             u.canceled ? null : h('button', { type: 'button', class: 'btn', onclick: () => cancelUse(u) }, '取り消す'),
           ),
@@ -169,7 +179,8 @@ async function cancelUse(u) {
 
 // ---------- ダイアログ ----------
 
-for (const btn of document.querySelectorAll('[data-close]')) btn.addEventListener('click', () => btn.closest('dialog').close())
+for (const btn of document.querySelectorAll('[data-close]'))
+  btn.addEventListener('click', () => btn.closest('dialog').close())
 // 外側(背景)をタップしたら閉じる
 $('#use-dialog').addEventListener('click', (e) => {
   if (e.target === e.currentTarget) e.currentTarget.close()
