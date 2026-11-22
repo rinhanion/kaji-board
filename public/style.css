@@ -444,7 +444,9 @@ dialog h3 { font: var(--text-subheading); color: var(--cobalt-700); margin: 0 0 
 .hbars { list-style: none; margin: 0; padding: 0; display: flex; flex-direction: column; gap: var(--space-3); }
 .hbar { display: grid; grid-template-columns: minmax(3em, 6em) 1fr auto; align-items: center; gap: var(--space-3); }
 .hbar-name { font-weight: 700; overflow: hidden; text-overflow: ellipsis; white-space: nowrap; }
-.hbar-num { font-weight: 500; font-variant-numeric: tabular-nums; min-width: 3.5em; text-align: right; }
+.hbar-num { font-weight: 500; font-variant-numeric: tabular-nums; min-width: 3.5em; text-align: right; white-space: nowrap; }
+.hbar-share { display: block; font: var(--text-subheading); font-weight: 700; font-variant-numeric: tabular-nums; }
+.hbar-count { display: block; color: var(--cobalt-700); font: var(--text-caption); font-variant-numeric: tabular-nums; }
 .hbar-track { display: block; height: 12px; background: var(--cobalt-50); border-radius: var(--radius-pill); overflow: hidden; }
 .hbar-fill { display: block; height: 100%; background: var(--c, var(--cobalt-500)); border-radius: inherit; transition: width 600ms var(--ease-bounce); }
 .hbar.unknown .hbar-name { color: var(--cobalt-700); font-weight: 500; }
