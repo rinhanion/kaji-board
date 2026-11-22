@@ -1100,6 +1100,8 @@ function chooseOwner(m) {
     `/api/tasks/${id}/owner`,
     m ? { memberId: m.id } : undefined,
   )
+  // 返事を待たずに、設定の担当ボタンも先に描き直す(recolorMember と同じ)
+  renderEdit()
 }
 
 $('#yen-input').addEventListener('change', (e) => {
