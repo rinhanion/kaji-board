@@ -1,5 +1,5 @@
 // PreToolUse(Edit / Write など): 触ってはいけないファイルの編集を止める
-import { SECRET_REASON, deny, git, isSecretFile, readInput, relPath } from './lib.mjs'
+import { deny, git, isSecretFile, readInput, relPath, SECRET_REASON } from './lib.mjs'
 
 const input = await readInput()
 const file = input.tool_input?.file_path ?? input.tool_input?.notebook_path
@@ -12,6 +12,8 @@ if (isSecretFile(rel)) deny(SECRET_REASON)
 if (/^migrations\/[^/]+\.sql$/.test(rel)) {
   const base = git('rev-parse', '--verify', '--quiet', 'origin/main') ? 'origin/main' : 'HEAD'
   if (git('cat-file', '-e', `${base}:${rel}`) !== null) {
-    deny(`${rel} は本番に当て済みの migration なので書き換えない決まりです(CLAUDE.md)。変更は新しい番号のファイルを足してください。`)
+    deny(
+      `${rel} は本番に当て済みの migration なので書き換えない決まりです(CLAUDE.md)。変更は新しい番号のファイルを足してください。`,
+    )
   }
 }

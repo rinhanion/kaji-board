@@ -5,7 +5,14 @@ import { api, daysAgo, runCron, seed, today } from './helpers'
 beforeEach(seed)
 
 type Who = { id: number; name: string; color: number }
-type Item = { id: number; name: string; createdAt: number; boughtAt: number | null; addedBy: Who | null; boughtBy: Who | null }
+type Item = {
+  id: number
+  name: string
+  createdAt: number
+  boughtAt: number | null
+  addedBy: Who | null
+  boughtBy: Who | null
+}
 type Board = { date: string; shopping: Item[]; error?: string; existingId?: number }
 type Row = {
   id: number
@@ -257,7 +264,11 @@ describe('買った ○', () => {
   })
 
   it('無い id の /buy・/unbuy は 404', async () => {
-    for (const res of [await buy(999, { memberId: 1 }), await unbuy(999), await buy(999, { memberId: 1, reassign: true })]) {
+    for (const res of [
+      await buy(999, { memberId: 1 }),
+      await unbuy(999),
+      await buy(999, { memberId: 1, reassign: true }),
+    ]) {
       expect(res.status).toBe(404)
       expect(res.data.error).toBe('この品はもう一覧にありません')
     }

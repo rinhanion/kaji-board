@@ -53,7 +53,8 @@ npm run dev                      # http://localhost:8787
 ### テスト
 
 ```sh
-npm run check   # 型チェック・RDRA の地図とコードの突き合わせ・テストをまとめて走らせる(変更したら毎回これ)
+npm run check   # 整形と lint・型チェック・RDRA の地図とコードの突き合わせ・テストをまとめて走らせる(変更したら毎回これ)
+npm run format  # 整形と、安全に直せる lint の指摘を直す
 npm test        # テストだけ
 ```
 
