@@ -2,7 +2,7 @@
 // - src/index.ts の API と、3-境界.md の UC の一覧の API が、どちら向きにも合っているか
 // - migrations/ のテーブルが、すべて 4-システム.md の情報モデルに載っているか
 // 使い方: node scripts/check-rdra.mjs(npm run check の中でも走る)
-import { readFileSync, readdirSync } from 'node:fs'
+import { readdirSync, readFileSync } from 'node:fs'
 import { join } from 'node:path'
 
 const root = join(import.meta.dirname, '..')

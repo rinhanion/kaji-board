@@ -13,7 +13,11 @@ export async function readInput() {
 
 export function git(...args) {
   try {
-    return execFileSync('git', args, { cwd: projectDir, encoding: 'utf8', stdio: ['ignore', 'pipe', 'ignore'] }).trimEnd() // 先頭の空白は git status の書式の一部なので残す
+    return execFileSync('git', args, {
+      cwd: projectDir,
+      encoding: 'utf8',
+      stdio: ['ignore', 'pipe', 'ignore'],
+    }).trimEnd() // 先頭の空白は git status の書式の一部なので残す
   } catch {
     return null
   }
@@ -41,4 +45,5 @@ export function isSecretFile(rel) {
   return base.startsWith('.dev.vars') && base !== '.dev.vars.example'
 }
 
-export const SECRET_REASON = '.dev.vars は合言葉などのシークレットなので、読むことも書くこともしない決まりです(CLAUDE.md)。合言葉は本人が `wrangler secret put` で入れます。'
+export const SECRET_REASON =
+  '.dev.vars は合言葉などのシークレットなので、読むことも書くこともしない決まりです(CLAUDE.md)。合言葉は本人が `wrangler secret put` で入れます。'

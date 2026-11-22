@@ -1,5 +1,5 @@
 // PreToolUse(Bash): main ブランチでのコミットと、.dev.vars に触るコマンドを止める
-import { SECRET_REASON, deny, git, readInput } from './lib.mjs'
+import { deny, git, readInput, SECRET_REASON } from './lib.mjs'
 
 const input = await readInput()
 const command = String(input.tool_input?.command ?? '')
@@ -17,5 +17,7 @@ if (/\.dev\.vars(?!\.example)/.test(code)) deny(SECRET_REASON)
 const commits = /\bgit\b(\s+-C\s+\S+)?\s+commit(?![\w-])/.test(command)
 const switches = /\bgit\b(\s+-C\s+\S+)?\s+(switch|checkout)\b/.test(command)
 if (commits && !switches && git('branch', '--show-current') === 'main') {
-  deny('main に直接コミットしない決まりです(CLAUDE.md)。Issue を作り、`git switch -c <種類>/<Issue 番号>-<説明>` でブランチを切ってからコミットしてください。')
+  deny(
+    'main に直接コミットしない決まりです(CLAUDE.md)。Issue を作り、`git switch -c <種類>/<Issue 番号>-<説明>` でブランチを切ってからコミットしてください。',
+  )
 }

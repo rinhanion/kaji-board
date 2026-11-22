@@ -1,0 +1,75 @@
+// 整形と lint の設定。npm run check の中で biome ci が走る
+{
+  "$schema": "https://biomejs.dev/schemas/2.6.8/schema.json",
+  "vcs": {
+    "enabled": true,
+    "clientKind": "git",
+    "useIgnoreFile": true
+  },
+  "files": {
+    "ignoreUnknown": true,
+    "includes": ["**", "!package-lock.json", "!**/*.md"] // 文書は手で書く。RDRA の地図は scripts/check-rdra.mjs が読むので崩さない
+  },
+  "formatter": {
+    "enabled": true,
+    "indentStyle": "space",
+    "indentWidth": 2,
+    "lineWidth": 120
+  },
+  "javascript": {
+    "formatter": {
+      "quoteStyle": "single",
+      "semicolons": "asNeeded",
+      "trailingCommas": "all",
+      "arrowParentheses": "always"
+    }
+  },
+  // style.css は 1 行 1 ルールの詰めた書き方にしているので、整形はかけない(lint はかける)
+  "css": {
+    "formatter": {
+      "enabled": false
+    }
+  },
+  "linter": {
+    "enabled": true,
+    "rules": {
+      "preset": "recommended",
+      "style": {
+        // 詰めた CSS では、場面ごとの上書きを近くに置くため、詳細度の順はそろえない
+        "noDescendingSpecificity": "off"
+      }
+    }
+  },
+  "overrides": [
+    {
+      "includes": ["public/**/*.js"],
+      "linter": {
+        "rules": {
+          "suspicious": {
+            // 画面の JS は module ではなく素の <script> で読むので、use strict に意味がある
+            "noRedundantUseStrict": "off"
+          }
+        }
+      }
+    },
+    {
+      "includes": ["test/**"],
+      "linter": {
+        "rules": {
+          "style": {
+            // テストでは「ここにはあるはず」を ! で書いてよい(無ければテストが落ちて分かる)
+            "noNonNullAssertion": "off"
+          }
+        }
+      }
+    }
+  ],
+  "assist": {
+    "enabled": true,
+    "actions": {
+      "source": {
+        "organizeImports": "on"
+      }
+    }
+  }
+}

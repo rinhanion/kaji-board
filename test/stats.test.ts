@@ -7,9 +7,25 @@ beforeEach(seed)
 type Stats = {
   from: string
   to: string
-  summary: { days: number; total: number; done: number; onceTotal: number; onceDone: number; unknown: number; firstDate: string | null }
+  summary: {
+    days: number
+    total: number
+    done: number
+    onceTotal: number
+    onceDone: number
+    unknown: number
+    firstDate: string | null
+  }
   days: { date: string; total: number; done: number }[]
-  chores: { id: number; title: string; deleted: boolean; total: number; done: number; unknown: number; doers: { name: string; color: number; count: number }[] }[]
+  chores: {
+    id: number
+    title: string
+    deleted: boolean
+    total: number
+    done: number
+    unknown: number
+    doers: { name: string; color: number; count: number }[]
+  }[]
   people: { name: string; color: number; count: number; share: number; shareExact: number }[]
   error?: string
 }
@@ -17,18 +33,22 @@ type Stats = {
 let nextId = 1
 
 // 記録を 1 件足す。doers は [member_id, 名前]
-async function addHistory(date: string, taskId: number, title: string, done: boolean, doers: [number, string][] = [], kind = 'daily') {
+async function addHistory(
+  date: string,
+  taskId: number,
+  title: string,
+  done: boolean,
+  doers: [number, string][] = [],
+  kind = 'daily',
+) {
   const id = nextId++
   await env.DB.batch([
-    env.DB.prepare('INSERT INTO history (id, date, task_id, title, kind, created_at, done_at) VALUES (?1, ?2, ?3, ?4, ?5, 0, ?6)').bind(
-      id,
-      date,
-      taskId,
-      title,
-      kind,
-      done ? 1 : null,
+    env.DB.prepare(
+      'INSERT INTO history (id, date, task_id, title, kind, created_at, done_at) VALUES (?1, ?2, ?3, ?4, ?5, 0, ?6)',
+    ).bind(id, date, taskId, title, kind, done ? 1 : null),
+    ...doers.map(([m, name]) =>
+      env.DB.prepare('INSERT INTO history_doers (history_id, member_id, name) VALUES (?1, ?2, ?3)').bind(id, m, name),
     ),
-    ...doers.map(([m, name]) => env.DB.prepare('INSERT INTO history_doers (history_id, member_id, name) VALUES (?1, ?2, ?3)').bind(id, m, name)),
   ])
 }
 
@@ -54,7 +74,15 @@ describe('集計', () => {
     const { data } = await stats('7')
     expect(data.from).toBe(daysAgo(7))
     expect(data.to).toBe(daysAgo(1))
-    expect(data.summary).toMatchObject({ days: 2, total: 5, done: 4, onceTotal: 1, onceDone: 1, unknown: 1, firstDate: daysAgo(40) })
+    expect(data.summary).toMatchObject({
+      days: 2,
+      total: 5,
+      done: 4,
+      onceTotal: 1,
+      onceDone: 1,
+      unknown: 1,
+      firstDate: daysAgo(40),
+    })
     expect(data.days).toEqual([
       { date: daysAgo(2), total: 3, done: 2 },
       { date: daysAgo(1), total: 2, done: 2 },
@@ -89,7 +117,10 @@ describe('集計', () => {
   })
 
   it('消した家事や家族も、写しておいた名前で数える', async () => {
-    await env.DB.batch([env.DB.prepare('DELETE FROM tasks WHERE id = 2'), env.DB.prepare('DELETE FROM members WHERE id = 2')])
+    await env.DB.batch([
+      env.DB.prepare('DELETE FROM tasks WHERE id = 2'),
+      env.DB.prepare('DELETE FROM members WHERE id = 2'),
+    ])
     const { data } = await stats('7')
     expect(data.chores.find((t) => t.id === 2)).toMatchObject({ title: '食器洗い', deleted: true })
     expect(data.people.map((p) => p.name)).toContain('パパ')
@@ -223,10 +254,17 @@ describe('分担の数', () => {
     await addHistory(daysAgo(1), 2, '食器洗い', true, [[2, 'パパ']])
     await addHistory(daysAgo(2), 1, '洗濯', true) // だれか
     await addHistory(daysAgo(2), 2, '食器洗い', false) // 未完了
-    await addHistory(daysAgo(3), 100, '布団を干す', true, [
-      [1, 'ママ'],
-      [3, 'こども'],
-    ], 'once')
+    await addHistory(
+      daysAgo(3),
+      100,
+      '布団を干す',
+      true,
+      [
+        [1, 'ママ'],
+        [3, 'こども'],
+      ],
+      'once',
+    )
     await addHistory(daysAgo(3), 1, '洗濯', true, [
       [2, 'パパ'],
       [3, 'こども'],

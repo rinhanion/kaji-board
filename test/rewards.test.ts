@@ -22,17 +22,24 @@ const thanksNames = (t: { thanks: { name: string }[] }) => t.thanks.map((x) => x
 let nextId = 1
 
 // 過去の記録を 1 件足す。doers・thanks は [member_id, 名前]
-async function addHistory(date: string, taskId: number, done: boolean, doers: [number, string][] = [], thanks: [number, string][] = []) {
+async function addHistory(
+  date: string,
+  taskId: number,
+  done: boolean,
+  doers: [number, string][] = [],
+  thanks: [number, string][] = [],
+) {
   const id = nextId++
   await env.DB.batch([
-    env.DB.prepare("INSERT INTO history (id, date, task_id, title, kind, created_at, done_at) VALUES (?1, ?2, ?3, '洗濯', 'daily', 0, ?4)").bind(
-      id,
-      date,
-      taskId,
-      done ? 1 : null,
+    env.DB.prepare(
+      "INSERT INTO history (id, date, task_id, title, kind, created_at, done_at) VALUES (?1, ?2, ?3, '洗濯', 'daily', 0, ?4)",
+    ).bind(id, date, taskId, done ? 1 : null),
+    ...doers.map(([m, name]) =>
+      env.DB.prepare('INSERT INTO history_doers (history_id, member_id, name) VALUES (?1, ?2, ?3)').bind(id, m, name),
     ),
-    ...doers.map(([m, name]) => env.DB.prepare('INSERT INTO history_doers (history_id, member_id, name) VALUES (?1, ?2, ?3)').bind(id, m, name)),
-    ...thanks.map(([m, name]) => env.DB.prepare('INSERT INTO history_thanks (history_id, member_id, name) VALUES (?1, ?2, ?3)').bind(id, m, name)),
+    ...thanks.map(([m, name]) =>
+      env.DB.prepare('INSERT INTO history_thanks (history_id, member_id, name) VALUES (?1, ?2, ?3)').bind(id, m, name),
+    ),
   ])
   return id
 }
@@ -146,10 +153,16 @@ describe('ポイント', () => {
 
   it('「ありがとう」を 1 つもらうと 1。一緒にやった家事なら、それぞれ 1', async () => {
     await env.DB.prepare("INSERT INTO members (id, name, sort, color) VALUES (3, 'こども', 3, 3)").run()
-    await addHistory(daysAgo(1), 1, true, [[1, 'ママ']], [
-      [2, 'パパ'],
-      [3, 'こども'],
-    ])
+    await addHistory(
+      daysAgo(1),
+      1,
+      true,
+      [[1, 'ママ']],
+      [
+        [2, 'パパ'],
+        [3, 'こども'],
+      ],
+    )
     await api('POST', '/api/tasks/1/check', { memberIds: [1, 2], reassign: true })
     await api('POST', '/api/tasks/1/thanks', { memberId: 3 })
     expect(await pointsOf('ママ')).toMatchObject({ chores: 2, thanks: 3, balance: 5 })

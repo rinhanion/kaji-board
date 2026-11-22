@@ -39,7 +39,10 @@ async function authToken(passphrase: string): Promise<string> {
     ['sign'],
   )
   const sig = new Uint8Array(await crypto.subtle.sign('HMAC', key, enc.encode('kaji-board-auth-v1')))
-  return btoa(String.fromCharCode(...sig)).replace(/\+/g, '-').replace(/\//g, '_').replace(/=+$/, '')
+  return btoa(String.fromCharCode(...sig))
+    .replace(/\+/g, '-')
+    .replace(/\//g, '_')
+    .replace(/=+$/, '')
 }
 
 function sameString(a: string, b: string): boolean {
@@ -62,7 +65,9 @@ async function resetBoard(db: D1Database, date: string, archiveDate?: string) {
              ON CONFLICT (date, task_id) DO UPDATE SET title = excluded.title, done_at = excluded.done_at`,
           )
           .bind(archiveDate),
-        db.prepare('DELETE FROM history_doers WHERE history_id IN (SELECT id FROM history WHERE date = ?1)').bind(archiveDate),
+        db
+          .prepare('DELETE FROM history_doers WHERE history_id IN (SELECT id FROM history WHERE date = ?1)')
+          .bind(archiveDate),
         db
           .prepare(
             `INSERT INTO history_doers (history_id, member_id, name)
@@ -70,7 +75,9 @@ async function resetBoard(db: D1Database, date: string, archiveDate?: string) {
              FROM task_doers d JOIN members m ON m.id = d.member_id JOIN history h ON h.date = ?1 AND h.task_id = d.task_id`,
           )
           .bind(archiveDate),
-        db.prepare('DELETE FROM history_thanks WHERE history_id IN (SELECT id FROM history WHERE date = ?1)').bind(archiveDate),
+        db
+          .prepare('DELETE FROM history_thanks WHERE history_id IN (SELECT id FROM history WHERE date = ?1)')
+          .bind(archiveDate),
         db
           .prepare(
             `INSERT INTO history_thanks (history_id, member_id, name)
@@ -87,7 +94,9 @@ async function resetBoard(db: D1Database, date: string, archiveDate?: string) {
     db.prepare("UPDATE tasks SET done_at = NULL WHERE kind = 'daily'"),
     db.prepare("DELETE FROM tasks WHERE kind = 'once'"),
     db
-      .prepare("INSERT INTO meta (key, value) VALUES ('board_date', ?1) ON CONFLICT(key) DO UPDATE SET value = excluded.value")
+      .prepare(
+        "INSERT INTO meta (key, value) VALUES ('board_date', ?1) ON CONFLICT(key) DO UPDATE SET value = excluded.value",
+      )
       .bind(date),
   ])
 }
@@ -225,10 +234,18 @@ function memberIdsOf(body: { memberIds?: unknown; memberId?: unknown }): number[
 
 // 完了にする。reassign なら、やった人を入れ替える(完了済みなら時刻はそのまま)。
 // そうでなければ未完了のときだけ完了にし、やった人も付ける(先にチェックした人を優先)
-async function checkTask(db: D1Database, target: 'tasks' | 'history', id: number, memberIds: number[], reassign: boolean) {
+async function checkTask(
+  db: D1Database,
+  target: 'tasks' | 'history',
+  id: number,
+  memberIds: number[],
+  reassign: boolean,
+) {
   const now = Date.now()
   const [doers, key, cols, vals] =
-    target === 'tasks' ? ['task_doers', 'task_id', 'member_id', 'm.id'] : ['history_doers', 'history_id', 'member_id, name', 'm.id, m.name']
+    target === 'tasks'
+      ? ['task_doers', 'task_id', 'member_id', 'm.id']
+      : ['history_doers', 'history_id', 'member_id, name', 'm.id, m.name']
   const thanks = target === 'tasks' ? 'task_thanks' : 'history_thanks'
   const inserts = memberIds.map((m) =>
     db
@@ -255,13 +272,22 @@ async function checkTask(db: D1Database, target: 'tasks' | 'history', id: number
     return
   }
   // 完了にできたとき(先にだれも完了にしていなかったとき)だけ、やった人を付ける
-  const done = await db.prepare(`UPDATE ${target} SET done_at = ?2 WHERE id = ?1 AND done_at IS NULL RETURNING id`).bind(id, now).first()
+  const done = await db
+    .prepare(`UPDATE ${target} SET done_at = ?2 WHERE id = ?1 AND done_at IS NULL RETURNING id`)
+    .bind(id, now)
+    .first()
   if (done && inserts.length) await db.batch(inserts)
 }
 
 // 「ありがとう」を付ける・外す。付けられるのは、完了していて、やった人がいて、自分がやっていない家事だけ。
 // 付けられないときは理由を返す
-async function setThanks(db: D1Database, target: 'tasks' | 'history', id: number, memberId: number, on: boolean): Promise<string | null> {
+async function setThanks(
+  db: D1Database,
+  target: 'tasks' | 'history',
+  id: number,
+  memberId: number,
+  on: boolean,
+): Promise<string | null> {
   const [doers, thanks, key, cols, vals] =
     target === 'tasks'
       ? ['task_doers', 'task_thanks', 'task_id', 'member_id', 'm.id']
@@ -381,12 +407,16 @@ app.patch('/api/tasks/:id', async (c) => {
   const body = await c.req.json<{ title?: string }>().catch(() => ({}) as { title?: string })
   const title = cleanText(body.title, TITLE_MAX)
   if (!title) return c.json({ error: `1〜${TITLE_MAX}文字で入力してください` }, 400)
-  await c.env.DB.prepare('UPDATE tasks SET title = ?1 WHERE id = ?2').bind(title, Number(c.req.param('id'))).run()
+  await c.env.DB.prepare('UPDATE tasks SET title = ?1 WHERE id = ?2')
+    .bind(title, Number(c.req.param('id')))
+    .run()
   return c.json(await getBoard(c.env.DB))
 })
 
 app.delete('/api/tasks/:id', async (c) => {
-  await c.env.DB.prepare('DELETE FROM tasks WHERE id = ?1').bind(Number(c.req.param('id'))).run()
+  await c.env.DB.prepare('DELETE FROM tasks WHERE id = ?1')
+    .bind(Number(c.req.param('id')))
+    .run()
   return c.json(await getBoard(c.env.DB))
 })
 
@@ -396,7 +426,9 @@ app.post('/api/tasks/reorder', async (c) => {
   if (!Array.isArray(body.ids) || body.ids.length === 0) return c.json({ error: 'ids が必要です' }, 400)
   const db = c.env.DB
   await db.batch(
-    body.ids.map((id, i) => db.prepare("UPDATE tasks SET sort = ?1 WHERE id = ?2 AND kind = 'daily'").bind(i + 1, Number(id))),
+    body.ids.map((id, i) =>
+      db.prepare("UPDATE tasks SET sort = ?1 WHERE id = ?2 AND kind = 'daily'").bind(i + 1, Number(id)),
+    ),
   )
   return c.json(await getBoard(db))
 })
@@ -419,7 +451,9 @@ type ShoppingBody = { name?: unknown; memberId?: unknown; reassign?: unknown }
 
 // その端末で選んでいる名前の id。数でなければ名前なし
 function memberIdOf(body: ShoppingBody): number | null {
-  return typeof body.memberId === 'number' && Number.isInteger(body.memberId) && body.memberId > 0 ? body.memberId : null
+  return typeof body.memberId === 'number' && Number.isInteger(body.memberId) && body.memberId > 0
+    ? body.memberId
+    : null
 }
 
 // 品を足す。書いた人は、その端末で選んでいる名前(無い・いない家族なら NULL)
@@ -429,8 +463,11 @@ app.post('/api/shopping', async (c) => {
   if (!name) return c.json({ error: `1〜${TITLE_MAX}文字で入力してください` }, 400)
   const key = normalize(name)
   const db = c.env.DB
-  const row = await db.prepare('SELECT COUNT(*) AS count FROM shopping_items WHERE bought_at IS NULL').first<{ count: number }>()
-  if ((row?.count ?? 0) >= SHOPPING_MAX) return c.json({ error: 'メモがいっぱいです。買ったものや要らないものを消してください' }, 400)
+  const row = await db
+    .prepare('SELECT COUNT(*) AS count FROM shopping_items WHERE bought_at IS NULL')
+    .first<{ count: number }>()
+  if ((row?.count ?? 0) >= SHOPPING_MAX)
+    return c.json({ error: 'メモがいっぱいです。買ったものや要らないものを消してください' }, 400)
   const memberId = memberIdOf(body)
   // 同じ品名のまだの品があれば、部分ユニークインデックスにぶつかる(ほかの端末と同時に足したときも同じ)
   try {
@@ -466,7 +503,9 @@ app.post('/api/shopping/:id/buy', async (c) => {
     const member = memberId && (await db.prepare('SELECT id FROM members WHERE id = ?1').bind(memberId).first())
     if (!member) return c.json({ error: '買った人を選んでください' }, 400)
     await db
-      .prepare(`UPDATE shopping_items SET bought_at = COALESCE(bought_at, ?4), bought_date = COALESCE(bought_date, ?1), ${who} WHERE id = ?2`)
+      .prepare(
+        `UPDATE shopping_items SET bought_at = COALESCE(bought_at, ?4), bought_date = COALESCE(bought_date, ?1), ${who} WHERE id = ?2`,
+      )
       .bind(today, id, memberId, Date.now())
       .run()
   } else {
@@ -483,7 +522,9 @@ app.post('/api/shopping/:id/unbuy', async (c) => {
   const id = Number(c.req.param('id'))
   const db = c.env.DB
   const item = await db
-    .prepare(`SELECT s.name_key AS key, s.bought_at AS boughtAt FROM shopping_items s WHERE s.id = ?2 AND ${SHOPPING_VISIBLE}`)
+    .prepare(
+      `SELECT s.name_key AS key, s.bought_at AS boughtAt FROM shopping_items s WHERE s.id = ?2 AND ${SHOPPING_VISIBLE}`,
+    )
     .bind(boardDate(), id)
     .first<{ key: string; boughtAt: number | null }>()
   if (!item) return c.json({ error: 'この品はもう一覧にありません' }, 404)
@@ -492,7 +533,9 @@ app.post('/api/shopping/:id/unbuy', async (c) => {
     if (existingId != null) return c.json({ error: 'もうあります', existingId }, 409)
     try {
       await db
-        .prepare('UPDATE shopping_items SET bought_at = NULL, bought_date = NULL, bought_by = NULL, bought_by_name = NULL WHERE id = ?1')
+        .prepare(
+          'UPDATE shopping_items SET bought_at = NULL, bought_date = NULL, bought_by = NULL, bought_by_name = NULL WHERE id = ?1',
+        )
         .bind(id)
         .run()
     } catch (e) {
@@ -507,7 +550,10 @@ app.post('/api/shopping/:id/unbuy', async (c) => {
 app.delete('/api/shopping/:id', async (c) => {
   const id = Number(c.req.param('id'))
   const db = c.env.DB
-  const row = await db.prepare('SELECT bought_at AS boughtAt FROM shopping_items WHERE id = ?1').bind(id).first<{ boughtAt: number | null }>()
+  const row = await db
+    .prepare('SELECT bought_at AS boughtAt FROM shopping_items WHERE id = ?1')
+    .bind(id)
+    .first<{ boughtAt: number | null }>()
   if (row && row.boughtAt != null) return c.json({ error: '買った品は消せません。○ を外してから消してください' }, 400)
   await db.prepare('DELETE FROM shopping_items WHERE id = ?1 AND bought_at IS NULL').bind(id).run()
   return c.json(await getBoard(db))
@@ -630,7 +676,9 @@ async function getStats(db: D1Database, days: number | null) {
       )
       .bind(from, to),
     db
-      .prepare(`SELECT h.date, COUNT(*) AS total, COUNT(h.done_at) AS done FROM history h WHERE ${range} GROUP BY h.date ORDER BY h.date`)
+      .prepare(
+        `SELECT h.date, COUNT(*) AS total, COUNT(h.done_at) AS done FROM history h WHERE ${range} GROUP BY h.date ORDER BY h.date`,
+      )
       .bind(from, to),
     // 毎日の家事ごと。名前は今の名前、消されていれば最後に記録した名前
     db
@@ -671,7 +719,9 @@ async function getStats(db: D1Database, days: number | null) {
     chores: (chores.results as { id: number; deleted: number }[]).map((t) => ({
       ...t,
       deleted: !!t.deleted,
-      doers: (choreDoers.results as Row[]).filter((d) => d.taskId === t.id).map(({ name, color, count }) => ({ name, color, count })),
+      doers: (choreDoers.results as Row[])
+        .filter((d) => d.taskId === t.id)
+        .map(({ name, color, count }) => ({ name, color, count })),
     })),
     people: (people.results as { name: string; color: number; count: number; shareExact: number }[]).map((p) => ({
       ...p,
@@ -706,16 +756,21 @@ app.get('/api/rewards', async (c) => c.json(await getRewards(c.env.DB)))
 
 // ポイントを使う。使えるポイントより多くは使えない
 app.post('/api/rewards/uses', async (c) => {
-  const body = await c.req.json<{ memberId?: unknown; points?: unknown }>().catch(() => ({}) as { memberId?: unknown; points?: unknown })
+  const body = await c.req
+    .json<{ memberId?: unknown; points?: unknown }>()
+    .catch(() => ({}) as { memberId?: unknown; points?: unknown })
   const db = c.env.DB
   const points = Number(body.points)
-  if (!Number.isInteger(points) || points < 1) return c.json({ error: 'ポイントは 1 以上の整数で入力してください' }, 400)
+  if (!Number.isInteger(points) || points < 1)
+    return c.json({ error: 'ポイントは 1 以上の整数で入力してください' }, 400)
   const { points: people, yenPerPoint } = await getPoints(db)
   const who = people.find((p) => p.id === Number(body.memberId))
   if (!who) return c.json({ error: '家族が見つかりません' }, 400)
   if (points > who.balance) return c.json({ error: `使えるのは ${Math.max(who.balance, 0)} ポイントまでです` }, 400)
   await db
-    .prepare('INSERT INTO point_uses (member_id, name, points, yen_per_point, used_date, created_at) VALUES (?1, ?2, ?3, ?4, ?5, ?6)')
+    .prepare(
+      'INSERT INTO point_uses (member_id, name, points, yen_per_point, used_date, created_at) VALUES (?1, ?2, ?3, ?4, ?5, ?6)',
+    )
     .bind(who.id, who.name, points, yenPerPoint, boardDate(), Date.now())
     .run()
   return c.json(await getRewards(db))
@@ -724,7 +779,10 @@ app.post('/api/rewards/uses', async (c) => {
 // 使った記録を取り消す(行は消さず、取り消しの印を付ける)
 app.post('/api/rewards/uses/:id/cancel', async (c) => {
   const db = c.env.DB
-  await db.prepare('UPDATE point_uses SET canceled_at = ?2 WHERE id = ?1 AND canceled_at IS NULL').bind(Number(c.req.param('id')), Date.now()).run()
+  await db
+    .prepare('UPDATE point_uses SET canceled_at = ?2 WHERE id = ?1 AND canceled_at IS NULL')
+    .bind(Number(c.req.param('id')), Date.now())
+    .run()
   return c.json(await getRewards(db))
 })
 
@@ -732,8 +790,11 @@ app.post('/api/rewards/uses/:id/cancel', async (c) => {
 app.patch('/api/settings', async (c) => {
   const body = await c.req.json<{ yenPerPoint?: unknown }>().catch(() => ({}) as { yenPerPoint?: unknown })
   const yen = Number(body.yenPerPoint)
-  if (!Number.isInteger(yen) || yen < 1 || yen > YEN_MAX) return c.json({ error: `1 ポイントは 1〜${YEN_MAX} 円で入力してください` }, 400)
-  await c.env.DB.prepare("INSERT INTO meta (key, value) VALUES ('yen_per_point', ?1) ON CONFLICT(key) DO UPDATE SET value = excluded.value")
+  if (!Number.isInteger(yen) || yen < 1 || yen > YEN_MAX)
+    return c.json({ error: `1 ポイントは 1〜${YEN_MAX} 円で入力してください` }, 400)
+  await c.env.DB.prepare(
+    "INSERT INTO meta (key, value) VALUES ('yen_per_point', ?1) ON CONFLICT(key) DO UPDATE SET value = excluded.value",
+  )
     .bind(String(yen))
     .run()
   return c.json(await getBoard(c.env.DB))
@@ -744,7 +805,10 @@ app.post('/api/members', async (c) => {
   const name = cleanText(body.name, NAME_MAX)
   if (!name) return c.json({ error: `1〜${NAME_MAX}文字で入力してください` }, 400)
   // 色は、いちばん使われていない色(同じなら若い番号)
-  const used = await c.env.DB.prepare('SELECT color, COUNT(*) AS n FROM members GROUP BY color').all<{ color: number; n: number }>()
+  const used = await c.env.DB.prepare('SELECT color, COUNT(*) AS n FROM members GROUP BY color').all<{
+    color: number
+    n: number
+  }>()
   const count = (k: number) => used.results.find((r) => r.color === k)?.n ?? 0
   let color = 1
   for (let k = 2; k <= COLOR_COUNT; k++) if (count(k) < count(color)) color = k
@@ -758,7 +822,9 @@ app.post('/api/members', async (c) => {
 
 // 名前と色のどちらか(または両方)を変える
 app.patch('/api/members/:id', async (c) => {
-  const body = await c.req.json<{ name?: string; color?: unknown }>().catch(() => ({}) as { name?: string; color?: unknown })
+  const body = await c.req
+    .json<{ name?: string; color?: unknown }>()
+    .catch(() => ({}) as { name?: string; color?: unknown })
   const id = Number(c.req.param('id'))
   const updates: D1PreparedStatement[] = []
   if (body.name !== undefined) {
@@ -768,7 +834,8 @@ app.patch('/api/members/:id', async (c) => {
   }
   if (body.color !== undefined) {
     const color = Number(body.color)
-    if (!Number.isInteger(color) || color < 1 || color > COLOR_COUNT) return c.json({ error: `色は 1〜${COLOR_COUNT} です` }, 400)
+    if (!Number.isInteger(color) || color < 1 || color > COLOR_COUNT)
+      return c.json({ error: `色は 1〜${COLOR_COUNT} です` }, 400)
     updates.push(c.env.DB.prepare('UPDATE members SET color = ?1 WHERE id = ?2').bind(color, id))
   }
   if (!updates.length) return c.json({ error: '名前か色を指定してください' }, 400)
@@ -778,7 +845,9 @@ app.patch('/api/members/:id', async (c) => {
 
 app.delete('/api/members/:id', async (c) => {
   // やった人からは task_doers の ON DELETE CASCADE で外れる
-  await c.env.DB.prepare('DELETE FROM members WHERE id = ?1').bind(Number(c.req.param('id'))).run()
+  await c.env.DB.prepare('DELETE FROM members WHERE id = ?1')
+    .bind(Number(c.req.param('id')))
+    .run()
   return c.json(await getBoard(c.env.DB))
 })
 

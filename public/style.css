@@ -66,6 +66,7 @@
 }
 
 *, *::before, *::after { box-sizing: border-box; }
+/* biome-ignore lint/complexity/noImportantStyles: hidden 属性は、display を持つどのクラスよりも勝たせる */
 [hidden] { display: none !important; }
 
 html { -webkit-text-size-adjust: 100%; }
@@ -530,6 +531,7 @@ dialog h3 { font: var(--text-subheading); color: var(--cobalt-700); margin: 0 0 
 
 /* 弾みを切り、色の変化だけにする */
 @media (prefers-reduced-motion: reduce) {
+  /* biome-ignore lint/complexity/noImportantStyles: 動きを減らす設定は、個別の指定より必ず勝たせる */
   *, *::before, *::after { animation: none !important; transition-property: background-color, color, opacity !important; }
   .card:active, .btn:active, .chip:active, .icon-btn:active, .day-btn:active, .fab:active, .shop:active, .me-points:active { transform: none; }
 }

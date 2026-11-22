@@ -56,7 +56,8 @@ let seq = 0 // 期間を続けて切り替えたとき、古い結果で上書�
 
 async function load() {
   const my = ++seq
-  for (const b of document.querySelectorAll('.seg button')) b.setAttribute('aria-checked', String(b.dataset.range === range))
+  for (const b of document.querySelectorAll('.seg button'))
+    b.setAttribute('aria-checked', String(b.dataset.range === range))
   $('#loading').hidden = false
   $('#error').hidden = true
   try {
@@ -210,7 +211,9 @@ function choreGauge(t) {
     'span',
     { class: 'hbar-track stack' },
     sum
-      ? parts.map((p) => h('span', { class: 'hbar-fill', style: `width: ${(width * p.count) / sum}%; --c: var(--who-${p.color})` }))
+      ? parts.map((p) =>
+          h('span', { class: 'hbar-fill', style: `width: ${(width * p.count) / sum}%; --c: var(--who-${p.color})` }),
+        )
       : h('span', { class: 'hbar-fill', style: `width: ${width}%` }),
   )
 }
@@ -230,7 +233,12 @@ function renderChores(data) {
           h('span', { class: 'chore-rate' }, `${pct(t.done, t.total)}%`),
         ),
         choreGauge(t),
-        h('p', { class: 'chore-sub' }, `${t.total}日のうち ${t.done}日`, who.length ? [' ・ ', ...who.flatMap((w, i) => (i ? [' / ', w] : [w]))] : ''),
+        h(
+          'p',
+          { class: 'chore-sub' },
+          `${t.total}日のうち ${t.done}日`,
+          who.length ? [' ・ ', ...who.flatMap((w, i) => (i ? [' / ', w] : [w]))] : '',
+        ),
       )
     }),
   )
