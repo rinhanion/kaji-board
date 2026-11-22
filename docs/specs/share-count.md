@@ -90,3 +90,175 @@ Issue: #(まだ無い。番号が付いたらファイル名とここを付け�
 4. 丸めのずれ(3 人で 1 件なら 0.3 + 0.3 + 0.3 = 0.9)は直さず、そのまま出す
 5. 欄の下に合計の一行は出さない。一言の説明だけにする
 6. 言い方は「分担の数」、単位は「件」(回数は「回」)
+
+## 設計
+
+### 1. データ
+
+マイグレーションは足さない。分担の数は、今ある `history` と `history_doers` から集計のたびに数える(決まりごと「記録」)。保存する列も、消す処理も足さない。
+
+#### 「人数」の数え方
+
+完了した家事 1 件(`history` の 1 行)の人数は、その `history_id` を持つ `history_doers` の行の数とする。
+
+- `history_doers` の主キーは `(history_id, member_id)` なので、1 件の中で同じ人は 1 行だけ
+- 今の家族を消しても、`history_doers` の行は消えず、`member_id` も元の id のまま残る(`DELETE /api/members/:id` は `members` だけを消す)。なので、消された家族も 1 行 = 1 人として人数に入り、家族を消す前と後で人数は変わらない(ほかの人の分担の数も変わらない)
+- `member_id` 0 の行は、`0003_doers.sql` で前の `done_by_name` を写したもの(消された家族のぶん)。もとが 1 件に 1 人だけだったので、1 件の中に 0 の行は多くて 1 つ。これも 1 行 = 1 人として数える
+- だれの行にまとめるかは、今の `DOER_KEY`(`d.member_id` と、0 のときだけ名前)をそのまま使う。回数と分担の数でまとめ方が同じになり、`member_id` 0 で名前の同じ人は 1 行にまとまる
+
+### 2. API
+
+`/api/board` には混ぜない。今の `GET /api/stats?range=7|30|all` の `people` の各行に、値を 2 つ足す。受け取る値・エラー(`range は 7・30・all のどれかです`)は変えない。
+
+```ts
+people: {
+  name: string
+  color: number // 0 は消された家族(灰色)
+  count: number // やった回数(今のまま。一緒にやってもそれぞれ 1)
+  share: number // 分担の数。小数第 1 位までに丸めたもの(画面にそのまま出す)
+  shareExact: number // 分担の数の丸める前(棒の長さに使う。全員分を足すと、やった人がわかる完了の数)
+}[]
+```
+
+`summary`・`days`・`chores`(家事ごとの `doers` の `count`)は変えない(決めたこと 2)。「だれか」の数は今までどおり `summary.unknown` で、`people` には入れない。
+
+#### `getStats()` のやった人ごとのクエリ
+
+```ts
+// 分担の数。完了した家事 1 件を、記録されたやった人の数で分ける(消された家族も 1 人と数える)
+const SHARE = 'SUM(1.0 / (SELECT COUNT(*) FROM history_doers n WHERE n.history_id = d.history_id))'
+```
+
+```sql
+SELECT COALESCE(m.name, d.name) AS name, COALESCE(m.color, 0) AS color, COUNT(*) AS count, ${SHARE} AS shareExact
+FROM history_doers d JOIN history h ON h.id = d.history_id LEFT JOIN members m ON m.id = d.member_id
+WHERE h.done_at IS NOT NULL AND ${range}
+GROUP BY ${DOER_KEY} ORDER BY ROUND(${SHARE}, 9) DESC, m.sort IS NULL, m.sort, d.member_id
+```
+
+- `1.0 /` で小数の割り算にする(`1 /` だと整数の割り算で 0 になる)
+- 条件は今の回数と同じ(`h.done_at IS NOT NULL` と期間)。毎日の家事も今日だけのタスクも入り、完了していない家事は入らない。今日の分はまだ `history` に無いので入らない
+- やった人の付いていない完了(「だれか」)は `history_doers` に行が無いので、このクエリには出てこない。だれの分にも割り振られない
+- 並びは分担の数の多い順(決めたこと 1)。今の `count DESC` は外す。同じ数なら今と同じく家族の並び順、消された家族はそのあと
+  - `ROUND(…, 9)` で比べるのは、小数の足し算のわずかなずれ(1/6 + 1/3 と 1/2 が少し違う、など)で、同じ数の人の順が入れ替わらないようにするため
+
+#### 丸め: サーバーでする(推す)
+
+| 案 | 中身 | 判断 |
+| --- | --- | --- |
+| A. サーバーで丸める(推す) | `getStats()` で `share`(丸めた数)と `shareExact`(丸める前)の両方を返す。画面は `share` に「件」を付けて出すだけ | 「小数第 1 位まで」「2.0 にしない」「0 になるなら 0.1」の決まりを、`test/stats.test.ts` で確かめられる(今の `test/` には画面のテストが無い) |
+| B. 画面で丸める | サーバーは丸める前の数だけを返し、`stats.js` で丸める | 決まりごとが画面にしか無く、手で見るほかに確かめようがない |
+
+A にする。`getStats()` の中に丸める関数を置く。
+
+```ts
+// 分担の数を小数第 1 位までに丸める。0 より大きいのに 0 になるときは 0.1 にする(やったのに 0 に見えないように)
+function roundShare(x: number) {
+  const r = Math.round(x * 10 + 1e-9) / 10
+  return x > 0 && r === 0 ? 0.1 : r
+}
+```
+
+- `1e-9` は、0.25 や 0.45 のような「ちょうど半分」が小数のずれで切り捨てにならないようにするため(4 分の 1 → 0.3、決まりごとの例どおり)
+- 返す値は数(`1.5`、`2`)。JSON でも `2` は `2` のままなので、画面で `${share}件` とすれば「2件」になり「2.0件」にはならない
+- `people: people.results.map((p) => ({ ...p, share: roundShare(p.shareExact) }))` のように足す
+
+### 3. 画面
+
+#### `public/stats.html`
+
+- 「だれが やった?」の欄の下の一言を、仕様の文言に変える:
+  `<p class="note">「件」は、一緒にやった家事を人数で分けた数です(2人なら 0.5件ずつ)。全員分を足すと、やった人がわかる完了の数になります。「回」は、一緒にやってもそれぞれ 1回と数えます</p>`
+- ほかは変えない
+
+#### `public/stats.js` の `renderPeople()`
+
+1 行の形(左から 名前・棒・右はしの数)は今のまま。右はしの `.hbar-num` の中を 2 段にする。
+
+```
+li.hbar                      ← 家族の行
+├ span.hbar-name             [dot, 名前](今のまま)
+├ span.hbar-track > span.hbar-fill   幅 = shareExact / max
+└ span.hbar-num
+   ├ span.hbar-share         `${share}件`(上・大きく太字)
+   └ span.hbar-count         `${count}回`(下・小さく)
+
+li.hbar.unknown              ← 「だれか」(今のまま一番下)
+├ span.hbar-name             だれか
+├ span.hbar-track > span.hbar-fill   幅 = unknown / max
+└ span.hbar-num              `${unknown}回`(1 段だけ。今と同じ大きさ)
+```
+
+- 並びはサーバーの順(分担の数の多い順)のまま。画面で並べ替えない。「だれか」は今と同じく最後に足す
+- 棒の長さ: `max = Math.max(1e-9, ...people.map((p) => p.shareExact), unknown)`。分担の数のいちばん多い人がいっぱいの長さになる(下の「仕様への問い」1)
+- 行の読み上げがわかるよう、`.hbar-num` に `aria-label` で「1.5件、2回」(だれかは「3回」)を付ける
+- 記録が無いときの「まだ完了した家事がありません」は今のまま
+- `renderChores()` と `choreGauge()` は変えない(コメントの「それぞれ 1 回と数える」もそのまま正しい)
+
+#### `public/style.css`
+
+`.hbar-num` のまわりだけを変える。色・大きさは `:root` のトークンだけを使う。
+
+```css
+.hbar-num { font-weight: 500; font-variant-numeric: tabular-nums; min-width: 3.5em; text-align: right; white-space: nowrap; }
+.hbar-share { display: block; font: var(--text-subheading); font-weight: 700; font-variant-numeric: tabular-nums; }
+.hbar-count { display: block; color: var(--cobalt-700); font: var(--text-caption); font-variant-numeric: tabular-nums; }
+```
+
+- 今の `.hbar` の `grid-template-columns: minmax(3em, 6em) 1fr auto` はそのまま。名前は 6em までで `…` で切れ、右はしの列は `auto` で数の幅ぶんだけ取り、`white-space: nowrap` で折り返さないので、横 360 でも欄からはみ出さない(棒の列が縮む)
+- 2 段になって行が高くなるが、`.hbar` は `align-items: center` なので、名前と棒は行のまんなかにそろう。「だれか」の行は 1 段のまま(今の高さ)
+- 「ぜんぶ」で数が大きくなっても(「1234.5件」)、上の段の 18px で 7〜8 文字ほど。横 360 の欄(左右の余白を引いて 328 ほど)で、名前 6em(90px)と間の 24px を引いても棒に 130px ほど残る
+
+### 4. 日付と反映
+
+- 家事の日付(`boardDate()`)との関係は今の集計のまま。期間は `boardDate()` の日数前から、`boardDate()`(今日)は含めない。今日の家事は毎朝 4:00 のリセットで `history` に写されてから、次の日の集計に入る
+- 毎朝のリセットで、写した `history_doers` は今の家族の id と名前で入る(今のまま)。分担の数はそこから数えるので、リセットに手を入れることはない
+- 集計の画面は 20 秒ごとの再読み込みをしない(今のまま)。開いたときと期間を切り替えたときに読み直す。過去の日のやった人を付け替えたら、次に開いたときに分担の数にも出る
+
+### 5. テストの方針
+
+`test/stats.test.ts` を変える。`Stats` の型の `people` に `share` と `shareExact` を足す。
+
+- 今の「一緒にやった家事は、それぞれ 1 回と数える」は、`toEqual` に `share` と `shareExact` が加わるので書き直す。今の記録ではママ・パパとも 1.5件・2回で同じ数になり、家族の並び順(ママ → パパ)になることもあわせて確かめる
+- 分担の数の項目は、記録の組み合わせが今の `beforeEach` と違うので、新しく `describe('分担の数')` を作り、その中で `DELETE FROM history` / `DELETE FROM history_doers` してから `addHistory` で記録を足す(`addHistory` はそのまま使う)
+- 3 人目の家族は、その場で `members` に INSERT する。21 人で一緒にやった記録は、`history_doers` に `member_id` 3〜23(いない家族。写した名前だけ)を入れてつくる
+- 丸める前の合計は小数なので `toBeCloseTo(…, 9)` で比べる
+
+| 仕様の「確かめ方」 | `test/stats.test.ts` で確かめること |
+| --- | --- |
+| ママ 1 人の風呂掃除・ママとパパの洗い物 | ママ `share: 1.5, count: 2`、パパ `share: 0.5, count: 1` |
+| 3 人で 1 件だけ | 3 人とも `share: 0.3, count: 1`。`shareExact` の合計が 1 |
+| 1 人の家事だけなら同じ数 | 1 人で 3 件やった人が `share: 3, count: 3`。`JSON.stringify` に `3.0` が出ないことも見る(`share` が整数の `3`) |
+| 丸め(決まりごとの例) | 4 人で 1 件 → 0.3、3 人で 2 件 → 0.7。21 人で 1 件 → 0.1(0 にならない) |
+| 丸める前の合計 = 完了の数 − だれか | 一緒にやった家事・1 人の家事・やった人なしの完了・今日だけのタスク(`kind = 'once'`、2 人)・未完了をまぜ、`shareExact` の合計が `summary.done - summary.unknown` と `toBeCloseTo` で同じ |
+| だれかは分担の数に入らない | やった人なしの完了を足しても `people` の `shareExact` の合計は変わらず、`summary.unknown` が増える |
+| 完了していない家事は入らない | `done: false` の記録にやった人を付けても(`history_doers` を直接入れる)、その人の `share` に入らない |
+| 消された家族と一緒にやった家事 | ママとパパの洗い物で、`DELETE /api/members/2` の前後でママの `share` が 0.5 のまま。消したあとパパは `color: 0` で `share: 0.5` |
+| 名前の同じ消された家族は 1 行 | `member_id` 0 の「おばあちゃん」を 2 件の記録に入れると、1 行で `count: 2` `share` も 2 件ぶん(下の「仕様への問い」2) |
+| 分担の数の多い順 | ママが 1 人で 2 件(2回・2件)、パパが 3 人目と 2 人で 3 件(3回・1.5件)。回数はパパが多いが、`people` の先頭がママ |
+| 棒はいちばん多い人がいっぱい | 画面のことなので手で確かめる(サーバーは `shareExact` を返すだけ) |
+| 7日・30日・ぜんぶ | 8 日前の 2 人の家事が、`range=7` では入らず、`range=30` では入る(`share` が 0.5 違う) |
+| 今日の家事は入らない | 今日の家事を 2 人で完了(`POST /api/tasks/:id/check` に `memberIds`)しても、`people` が変わらない |
+| ポイントは変わらない | 2 人の家事のあと、`GET /api/board` の `points` で、それぞれ `chores` が 1 ずつ(0.5 にならない) |
+
+画面だけの項目(右はしの 2 段の大きさ、「だれか」の行が「N回」だけ、欄の下の新しい一言、棒の長さ、横 360 で名前が長くてもはみ出さない)は、今の `test/` に画面のテストが無いので、実装のあと `npm run dev` で、スマホの幅にしたブラウザで手で確かめる。
+
+### 6. 本番への反映
+
+マイグレーションは無いので、マージしたあと main で `npm run deploy` だけでよい(`db:migrate:remote` は要らない)。
+
+### 7. 変更するファイル
+
+| ファイル | 変更 |
+| --- | --- |
+| `src/index.ts` | `SHARE`・`roundShare()` を足し、`getStats()` のやった人ごとのクエリに `shareExact`、並びを分担の数の順に、`people` に `share` を足す |
+| `public/stats.js` | `renderPeople()` の右はしを 2 段に、棒の長さを `shareExact` で |
+| `public/stats.html` | 欄の下の一言 |
+| `public/style.css` | `.hbar-num` に `white-space: nowrap`、`.hbar-share` `.hbar-count` を足す |
+| `test/stats.test.ts` | `Stats` の型、今のやった人のテストの書き直し、`describe('分担の数')` |
+| `README.md` | 「できること」の集計の行の「だれが何回やったか」を「だれが何回やったか・分担の数(一緒にやった家事を人数で分けた数)」に |
+
+### 仕様への問い
+
+1. **「だれか」の行の棒の長さ**: 仕様は「いちばん多い人をいっぱいの長さに」とあるが、「だれか」の数がいちばん多い人の分担の数より多いときが決まっていない。設計では、今と同じく「だれか」の数も最大に入れて比べる(「だれか」の 1 回は完了 1 件なので、件と同じ物差しになる)。このとき「だれか」の棒がいっぱいになり、いちばん多い人の棒はいっぱいより短くなる。もう 1 つの案は、最大は家族の分担の数だけで決め、「だれか」の棒はいっぱいで止める(はみ出さない)
+2. **「名前の同じ消された家族が 2 人いるときは 1 行にまとまる」**: 今のやった回数で名前ごとにまとまるのは、`member_id` 0(前のしくみで写した記録)だけ。0003 より後に消した家族は元の id のまま残るので、名前が同じでも別の人として 2 行に出る(今のやった回数と同じ)。設計は今のまとめ方(`DOER_KEY`)のままにし、テストは `member_id` 0 で確かめる。後に消した家族も名前でまとめたいなら、回数のまとめ方も一緒に変えることになる
