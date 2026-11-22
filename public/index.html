@@ -163,6 +163,17 @@
     </div>
   </dialog>
 
+  <!-- だれの担当?(設定の毎日の家事の「担当」ボタンで開く。1 人だけ選ぶ) -->
+  <dialog id="owner-dialog" class="sheet">
+    <h2>だれの 担当?</h2>
+    <p id="owner-task" class="hint"></p>
+    <div id="owner-list" class="me-list owner-list"></div>
+    <p class="hint">担当でない人も完了にできます。ポイントはやった人に入ります</p>
+    <div class="sheet-actions">
+      <button type="button" class="btn" data-close>とじる</button>
+    </div>
+  </dialog>
+
   <!-- 毎日の家事と家族の編集 -->
   <dialog id="edit-dialog" class="fullscreen">
     <header class="edit-head">

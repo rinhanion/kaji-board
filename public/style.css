@@ -85,12 +85,12 @@ button { cursor: pointer; touch-action: manipulation; }
 
 /* 押すと縮み、離すと弾んで戻る */
 .btn, .chip, .icon-btn, .day-btn, .fab, .del, .toast button, .me-list button, .edit-row button,
-.shop, .me-points, .shop-row .box, .shop-row .x {
+.shop, .me-points, .shop-row .box, .shop-row .x, .owner-line .owner-btn {
   transition: transform 400ms var(--ease-bounce), background-color 150ms, color 150ms;
 }
 .btn:active, .chip:active, .icon-btn:active, .day-btn:active:not(:disabled), .fab:active, .del:active,
 .toast button:active, .me-list button:active, .edit-row button:active:not(:disabled),
-.me-points:active, .shop-row .box:active:not(:disabled), .shop-row .x:active:not(:disabled) {
+.me-points:active, .shop-row .box:active:not(:disabled), .shop-row .x:active:not(:disabled), .owner-line .owner-btn:active {
   transform: scale(.9);
   transition-duration: 80ms;
 }
@@ -264,6 +264,10 @@ body:has(#board.past) { background: var(--cobalt-50); }
   font-weight: 700;
   line-height: 22px;
 }
+/* 名前の上の札(今日だけ・担当)。自分の担当は札をコバルトで塗る(カードのふちは変えない) */
+.card-tags { display: flex; flex-wrap: wrap; gap: 6px; }
+.tag.owner .dot { margin-right: .25em; }
+.tag.owner.mine { background: var(--cobalt-500); color: var(--on-cobalt); }
 
 .card.done { background: transparent; border-color: var(--cobalt-50); }
 .card.done .check { background: var(--cobalt-700); border-color: var(--cobalt-700); }
@@ -344,12 +348,18 @@ dialog h3 { font: var(--text-subheading); color: var(--cobalt-700); margin: 0 0 
 }
 .me-list button.on { background: var(--cobalt-50); border-color: var(--cobalt-500); color: var(--cobalt-700); }
 
-/* だれが やった?: 何人でも選べるので、選んだ人にチェックを付ける */
-.who-list button { display: flex; align-items: center; justify-content: center; gap: 6px; }
-.who-list button svg { width: 20px; height: 20px; fill: none; stroke: currentColor; stroke-width: 3; stroke-linecap: round; stroke-linejoin: round; visibility: hidden; }
-.who-list button.on svg { visibility: visible; }
+/* だれが やった?(何人でも)と だれの 担当?(1 人だけ、なしも): 選んだ人にチェックを付ける */
+.who-list button,
+.owner-list button { display: flex; align-items: center; justify-content: center; gap: 6px; }
+.who-list button svg,
+.owner-list button svg { width: 20px; height: 20px; fill: none; stroke: currentColor; stroke-width: 3; stroke-linecap: round; stroke-linejoin: round; visibility: hidden; }
+.who-list button.on svg,
+.owner-list button.on svg { visibility: visible; }
 .who-actions #who-undo { margin-right: auto; }
 #who-ok:disabled { opacity: .4; }
+
+/* だれの 担当?: 「なし」は名前より控えめに */
+.owner-list .none { font-weight: 500; color: var(--cobalt-700); }
 
 .inline-form { display: flex; gap: var(--space-2); }
 .inline-form input { flex: 1; }
@@ -378,6 +388,18 @@ dialog h3 { font: var(--text-subheading); color: var(--cobalt-700); margin: 0 0 
 }
 .edit-row button:disabled { opacity: .35; }
 .edit-row .x { background: var(--danger-bg); color: var(--danger); }
+
+/* 毎日の家事: 名前の行と「担当」ボタンを、家事ごとに枠で囲む */
+#edit-chores { gap: var(--space-3); }
+.edit-chore {
+  display: flex; flex-direction: column; gap: var(--space-2);
+  padding: var(--space-3);
+  border: 1px solid var(--cobalt-200); border-radius: var(--radius-lg);
+  background: var(--paper-raised);
+}
+.owner-line { display: flex; }
+.owner-line .owner-btn { min-height: 40px; padding: 0 14px; border: 0; border-radius: var(--radius-pill); background: var(--cobalt-50); color: var(--cobalt-700); font: var(--text-body); font-weight: 500; }
+.owner-line .owner-btn.unset { background: transparent; outline: 1.5px dashed var(--cobalt-200); outline-offset: -1.5px; }
 
 /* 家族の色: 名前の前の丸と、設定の色えらび */
 .dot { display: inline-block; flex: none; width: .7em; height: .7em; margin-right: .3em; border-radius: 50%; background: var(--c, var(--who-0)); vertical-align: .05em; }

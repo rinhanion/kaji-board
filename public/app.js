@@ -21,6 +21,7 @@ let pastDate = null // 見ている過去の日。null なら今日
 let past = null // 過去の日の記録 { date, tasks }。読み込み中は null
 let shopFlashId = null // 「もうあります」で光らせる買い物メモの品
 let buyerItemId = null // 「だれが買った?」で選んでいる品
+let ownerTaskId = null // 「だれの担当?」で選んでいる家事
 
 // ---------- 小さな道具 ----------
 
@@ -298,6 +299,15 @@ function taskItem(t) {
   const myId = getMe()
   const canThank = done && t.doers.length > 0 && !t.doers.some((d) => d.id === myId)
   const thanked = t.thanks.some((d) => d.id === myId)
+  // 名前の上の札。担当は今日のボードだけ(過去の日の記録には担当を写さない)。完了しても残す
+  const tags = []
+  if (t.kind === 'once') tags.push(h('span', { class: 'tag' }, '今日だけ'))
+  if (!pastDate && t.owner)
+    tags.push(
+      t.owner.id === myId
+        ? h('span', { class: 'tag owner mine' }, 'あなたの担当')
+        : h('span', { class: 'tag owner' }, '担当 ', dot(t.owner.color), t.owner.name),
+    )
   const card = h(
     'button',
     {
@@ -310,7 +320,7 @@ function taskItem(t) {
     h(
       'span',
       { class: 'card-body' },
-      t.kind === 'once' ? h('span', { class: 'tag' }, '今日だけ') : null,
+      tags.length ? h('span', { class: 'card-tags' }, tags) : null,
       h('span', { class: 'card-title' }, t.title),
       meta ? h('span', { class: 'card-meta' }, meta) : null,
       done && t.thanks.length
@@ -965,25 +975,50 @@ function dailyTasks() {
 function renderEdit() {
   const chores = dailyTasks()
   $('#edit-chores').replaceChildren(
+    // 家事ごとに枠で囲み、名前の行の下に「担当」ボタンを置く(家族がいるときだけ)
     ...chores.map((t, i) =>
       h(
         'li',
-        { class: 'edit-row' },
-        h('input', {
-          value: t.title,
-          maxlength: '40',
-          'aria-label': '家事の名前',
-          enterkeyhint: 'done',
-          onchange: (e) => renameChore(t, e.target),
-          onkeydown: (e) => e.key === 'Enter' && e.target.blur(),
-        }),
-        h('button', { type: 'button', 'aria-label': '上へ', disabled: i === 0, onclick: () => moveChore(i, -1) }, '↑'),
+        { class: 'edit-chore' },
         h(
-          'button',
-          { type: 'button', 'aria-label': '下へ', disabled: i === chores.length - 1, onclick: () => moveChore(i, 1) },
-          '↓',
+          'div',
+          { class: 'edit-row' },
+          h('input', {
+            value: t.title,
+            maxlength: '40',
+            'aria-label': '家事の名前',
+            enterkeyhint: 'done',
+            onchange: (e) => renameChore(t, e.target),
+            onkeydown: (e) => e.key === 'Enter' && e.target.blur(),
+          }),
+          h(
+            'button',
+            { type: 'button', 'aria-label': '上へ', disabled: i === 0, onclick: () => moveChore(i, -1) },
+            '↑',
+          ),
+          h(
+            'button',
+            { type: 'button', 'aria-label': '下へ', disabled: i === chores.length - 1, onclick: () => moveChore(i, 1) },
+            '↓',
+          ),
+          h('button', { type: 'button', class: 'x', 'aria-label': '削除', onclick: () => deleteChore(t) }, '×'),
         ),
-        h('button', { type: 'button', class: 'x', 'aria-label': '削除', onclick: () => deleteChore(t) }, '×'),
+        board.members.length
+          ? h(
+              'div',
+              { class: 'owner-line' },
+              h(
+                'button',
+                {
+                  type: 'button',
+                  class: `owner-btn${t.owner ? '' : ' unset'}`,
+                  'aria-label': t.owner ? `${t.title}の担当: ${t.owner.name}` : `${t.title}の担当を決める`,
+                  onclick: () => openOwner(t.id),
+                },
+                ...(t.owner ? ['担当 ', dot(t.owner.color), t.owner.name] : ['担当を決める']),
+              ),
+            )
+          : null,
       ),
     ),
   )
@@ -1025,6 +1060,48 @@ function renderEdit() {
       : [h('li', { class: 'hint' }, '名前は、右上の「私は…」から追加できます')]),
   )
   $('#yen-input').value = String(board.yenPerPoint)
+}
+
+// だれの担当?: 1 人だけ。名前(または「なし」)をタップしたらすぐ決まって閉じる
+function openOwner(id) {
+  const t = board.tasks.find((y) => y.id === id)
+  if (!t) return
+  ownerTaskId = id
+  const current = t.owner?.id ?? null
+  const option = (on, onclick, ...children) =>
+    h('button', { type: 'button', class: on ? 'on' : '', 'aria-pressed': on ? 'true' : 'false', onclick }, ...children)
+  const none = option(current == null, () => chooseOwner(null), svgCheck(), 'なし')
+  none.classList.add('none')
+  $('#owner-task').textContent = t.title
+  $('#owner-list').replaceChildren(
+    none,
+    ...board.members.map((m) => option(m.id === current, () => chooseOwner(m), svgCheck(), dot(m.color), m.name)),
+  )
+  $('#owner-dialog').showModal()
+}
+$('#owner-dialog').addEventListener('close', () => {
+  ownerTaskId = null
+})
+
+// m が null なら担当を外す。過去の日を見ているときも、担当は今日の board に入れる
+function chooseOwner(m) {
+  const id = ownerTaskId
+  $('#owner-dialog').close()
+  const t = board.tasks.find((y) => y.id === id)
+  if (!t) return
+  if ((t.owner?.id ?? null) === (m?.id ?? null)) return // 今の担当と同じなら何もしない
+  const owner = m ? { id: m.id, name: m.name, color: m.color } : null
+  editMutate(
+    () => {
+      const x = board.tasks.find((y) => y.id === id)
+      if (x) x.owner = owner
+    },
+    m ? 'POST' : 'DELETE',
+    `/api/tasks/${id}/owner`,
+    m ? { memberId: m.id } : undefined,
+  )
+  // 返事を待たずに、設定の担当ボタンも先に描き直す(recolorMember と同じ)
+  renderEdit()
 }
 
 $('#yen-input').addEventListener('change', (e) => {

@@ -52,7 +52,7 @@ function sameString(a: string, b: string): boolean {
   return diff === 0
 }
 
-// 毎日の家事のチェックを外し、今日だけのタスクを消す。
+// 毎日の家事のチェックを外し、今日だけのタスクを消す。毎日の家事の担当(owner_id)はそのまま。
 // archiveDate があれば、消す前にその日付で history に写しておく(同じ日付をもう一度写したら上書き)
 async function resetBoard(db: D1Database, date: string, archiveDate?: string) {
   const archive = archiveDate
@@ -180,13 +180,18 @@ function personOf(id: number | null, name: string | null, color: number | null) 
   return id != null && name != null ? { id, name, color: color ?? 0 } : null
 }
 
+type TaskRow = { ownerId: number | null; ownerName: string | null; ownerColor: number | null }
+
 // today は家事の日付。操作と同じ日付で一覧を返したいときに渡す
 async function getBoard(db: D1Database, today = boardDate()) {
   const [members, tasks, doers, thanks, shopping] = await db.batch([
     db.prepare('SELECT id, name, color FROM members ORDER BY sort, id'),
+    // 担当は今の家族の名前と色で出す(担当なし・今日だけのタスクは null)
     db.prepare(
-      `SELECT id, title, kind, sort, done_at AS doneAt, created_at AS createdAt
-       FROM tasks ORDER BY kind = 'once', sort, id`,
+      `SELECT t.id, t.title, t.kind, t.sort, t.done_at AS doneAt, t.created_at AS createdAt,
+         o.id AS ownerId, o.name AS ownerName, o.color AS ownerColor
+       FROM tasks t LEFT JOIN members o ON o.id = t.owner_id
+       ORDER BY t.kind = 'once', t.sort, t.id`,
     ),
     db.prepare(
       `SELECT d.task_id AS taskId, m.id, m.name, m.color
@@ -213,7 +218,14 @@ async function getBoard(db: D1Database, today = boardDate()) {
   return {
     date: today,
     members: members.results,
-    tasks: withDoers(tasks.results, doers.results, thanks.results),
+    tasks: withDoers(
+      (tasks.results as TaskRow[]).map(({ ownerId, ownerName, ownerColor, ...t }) => ({
+        ...t,
+        owner: personOf(ownerId, ownerName, ownerColor),
+      })),
+      doers.results,
+      thanks.results,
+    ),
     shopping: (shopping.results as ShoppingRow[]).map((r) => ({
       id: r.id,
       name: r.name,
@@ -413,6 +425,35 @@ app.patch('/api/tasks/:id', async (c) => {
   return c.json(await getBoard(c.env.DB))
 })
 
+// 毎日の家事の担当を、その家族にする(担当は 1 人だけなので、ほかの人なら入れ替わる)
+app.post('/api/tasks/:id/owner', async (c) => {
+  const body = await c.req.json<{ memberId?: unknown }>().catch(() => ({}) as { memberId?: unknown })
+  const id = Number(c.req.param('id'))
+  const db = c.env.DB
+  const task = await db.prepare('SELECT kind FROM tasks WHERE id = ?1').bind(id).first<{ kind: string }>()
+  if (!task) return c.json({ error: '家事が見つかりません' }, 404)
+  if (task.kind !== 'daily') return c.json({ error: '担当は毎日の家事にだけ付けられます' }, 400)
+  const memberId = memberIdOf(body)
+  const member = memberId && (await db.prepare('SELECT id FROM members WHERE id = ?1').bind(memberId).first())
+  if (!member) return c.json({ error: '担当にする家族を選んでください' }, 400)
+  // 家族の id は副問い合わせで入れる(あいだに消されても、外部キーの違反にならず担当なしになる)
+  await db
+    .prepare("UPDATE tasks SET owner_id = (SELECT id FROM members WHERE id = ?2) WHERE id = ?1 AND kind = 'daily'")
+    .bind(id, memberId)
+    .run()
+  return c.json(await getBoard(db))
+})
+
+// 担当を外す。担当がいない・無い家事でも、外れた結果にはなっているので 200
+app.delete('/api/tasks/:id/owner', async (c) => {
+  const db = c.env.DB
+  await db
+    .prepare('UPDATE tasks SET owner_id = NULL WHERE id = ?1')
+    .bind(Number(c.req.param('id')))
+    .run()
+  return c.json(await getBoard(db))
+})
+
 app.delete('/api/tasks/:id', async (c) => {
   await c.env.DB.prepare('DELETE FROM tasks WHERE id = ?1')
     .bind(Number(c.req.param('id')))
@@ -449,8 +490,8 @@ async function unboughtIdOf(db: D1Database, key: string): Promise<number | null>
 
 type ShoppingBody = { name?: unknown; memberId?: unknown; reassign?: unknown }
 
-// その端末で選んでいる名前の id。数でなければ名前なし
-function memberIdOf(body: ShoppingBody): number | null {
+// その端末で選んでいる名前(担当では、担当にする家族)の id。数でなければ名前なし
+function memberIdOf(body: { memberId?: unknown }): number | null {
   return typeof body.memberId === 'number' && Number.isInteger(body.memberId) && body.memberId > 0
     ? body.memberId
     : null
@@ -844,7 +885,7 @@ app.patch('/api/members/:id', async (c) => {
 })
 
 app.delete('/api/members/:id', async (c) => {
-  // やった人からは task_doers の ON DELETE CASCADE で外れる
+  // やった人からは task_doers の ON DELETE CASCADE で外れる。家事の担当は tasks.owner_id の ON DELETE SET NULL で外れる
   await c.env.DB.prepare('DELETE FROM members WHERE id = ?1')
     .bind(Number(c.req.param('id')))
     .run()

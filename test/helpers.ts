@@ -58,7 +58,15 @@ export async function authCookie(): Promise<string> {
 }
 
 type Who = { id: number; name: string; color: number }
-type Task = { id: number; title: string; kind: string; doers: Who[]; thanks: Who[]; doneAt: number | null }
+type Task = {
+  id: number
+  title: string
+  kind: string
+  doers: Who[]
+  thanks: Who[]
+  doneAt: number | null
+  owner?: Who | null // 担当(今日のボードだけ。過去の日の記録には無い)
+}
 
 // ログイン済みで API を呼び、JSON を返す
 export async function api<T = { date: string; tasks: Task[]; past?: { date: string; tasks: Task[] }; error?: string }>(
